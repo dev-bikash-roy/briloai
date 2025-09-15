@@ -65,7 +65,7 @@ function absolute(href) {
   try { return new URL(href, BASE).href; } catch { return href; }
 }
 
-// --------- PARSERS tailored to the HTML you shared ---------
+// --------- PARSERS (no price capture) ---------
 // Cards live under: .releases-container .release-item-continer
 // Each card has: a.release-item > spans: .release-price-from (date or $price), .release-item-title (title).
 // Image at .release-item-image img[src]
@@ -84,12 +84,9 @@ function extractCardList(html) {
     let stamp = a.find(".release-price-from").first().text().trim();
     const img = a.find(".release-item-image img").attr("src") || a.find("img").attr("data-src") || a.find("img").attr("src");
 
+    // If the stamp is a price (starts with $), ignore it entirely (do not store or show)
     let date_hint = null;
-    let price = null;
-    if (/^\$/.test(stamp)) {
-      price = stamp;               // Sometimes the first card shows a price instead of a date
-      stamp = null;
-    } else if (stamp) {
+    if (stamp && !/^\$/.test(stamp)) {
       date_hint = stamp;           // e.g., "Sep 13"
     }
 
@@ -97,7 +94,6 @@ function extractCardList(html) {
       title,
       brand: normalizeBrand(title) || null,
       date_hint,
-      price,
       url: absolute(href),
       image: img ? (img.startsWith("http") ? img : `https:${img}`) : null
     });
@@ -126,8 +122,8 @@ function extractDetail(html, fallback) {
     brand,
     release_date: dateISO,
     url: fallback?.url,
-    image,
-    price_hint: fallback?.price || null
+    image
+    // no price fields
   };
 }
 
@@ -161,7 +157,7 @@ export default async function handler(req, res) {
   const now = Date.now();
   if (cached && now - cached.at < TTL_MS) return res.json(cached.data);
 
-  // 1) collect list items across pages (using the exact classes from your HTML)
+  // 1) collect list items across pages
   const list = [];
   for (let p = 0; p < pages; p++) {
     const url = `${BASE}${CAL_PATH}?page=${startPage + p}`;
@@ -169,8 +165,8 @@ export default async function handler(req, res) {
       const html = await fetchText(url);
       list.push(...extractCardList(html));
       if (list.length >= limit) break;
-    } catch (err) {
-      // proceed even if one page fails
+    } catch {
+      // continue on failure
     }
   }
 
@@ -184,7 +180,7 @@ export default async function handler(req, res) {
     if (unique.length >= limit) break;
   }
 
-  // 2) visit detail pages to capture full date + image
+  // 2) visit detail pages (no price collected)
   const out = [];
   for (const it of unique) {
     try {
@@ -196,8 +192,8 @@ export default async function handler(req, res) {
         brand: it.brand,
         release_date: toISOFromTextDate(it.date_hint),
         url: it.url,
-        image: it.image || null,
-        price_hint: it.price || null
+        image: it.image || null
+        // no price fields
       });
     }
     if (out.length >= limit) break;
