@@ -20,7 +20,7 @@ function monthToNum(m) {
   return map[m.toLowerCase()] || null;
 }
 
-function toISOFromTextDate(s) {
+function toISOFromTextDate(s, allowHistorical = false) {
   if (!s) return null;
   const m = s.match(/([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{4})?/);
   if (!m) return null;
@@ -28,12 +28,50 @@ function toISOFromTextDate(s) {
   const day = parseInt(m[2], 10);
   let year = m[3] ? parseInt(m[3], 10) : (new Date()).getFullYear();
   if (!month || !day) return null;
+  
   const now = new Date();
+  
+  // Enhanced logic for historical date handling
   if (!m[3]) {
-    const tmp = new Date(Date.UTC(now.getUTCFullYear(), month - 1, day));
-    if (tmp < now) year = now.getUTCFullYear() + 1;
+    const currentYear = now.getUTCFullYear();
+    const tmp = new Date(Date.UTC(currentYear, month - 1, day));
+    
+    if (allowHistorical) {
+      // For historical parsing, if the date is more than 6 months in the future,
+      // it's likely from the previous year
+      const sixMonthsFromNow = new Date(now);
+      sixMonthsFromNow.setMonth(now.getMonth() + 6);
+      
+      if (tmp > sixMonthsFromNow) {
+        year = currentYear - 1;
+      } else {
+        year = currentYear;
+      }
+    } else {
+      // Original logic for upcoming releases
+      if (tmp < now) {
+        year = currentYear + 1;
+      } else {
+        year = currentYear;
+      }
+    }
   }
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).toISOString();
+  
+  // Validate the constructed date
+  const constructedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (isNaN(constructedDate.getTime())) {
+    return null;
+  }
+  
+  // Additional validation for reasonable date ranges
+  const minYear = 2020; // Reasonable minimum year for sneaker releases
+  const maxYear = now.getUTCFullYear() + 2; // Maximum 2 years in the future
+  
+  if (year < minYear || year > maxYear) {
+    return null;
+  }
+  
+  return constructedDate.toISOString();
 }
 
 function normalizeBrand(s) {
@@ -53,6 +91,103 @@ function normalizeBrand(s) {
   if (t.includes("bape")) return "Bape";
   if (t.includes("under armour")) return "Under Armour";
   return null;
+}
+
+// Enhanced date parsing for historical data with better edge case handling
+function parseHistoricalDate(dateString) {
+  if (!dateString) return null;
+  
+  // Handle various date formats that might appear in historical data
+  const formats = [
+    // Standard format: "Month DD, YYYY" or "Month DD"
+    /([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{4})?/,
+    // Alternative format: "MM/DD/YYYY" or "MM/DD/YY"
+    /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/,
+    // ISO-like format: "YYYY-MM-DD"
+    /(\d{4})-(\d{1,2})-(\d{1,2})/,
+    // Compact format: "MMDDYYYY" or "MMDDYY"
+    /(\d{2})(\d{2})(\d{2,4})/
+  ];
+  
+  for (const format of formats) {
+    const match = dateString.match(format);
+    if (match) {
+      let year, month, day;
+      
+      if (format === formats[0]) {
+        // Month name format
+        month = monthToNum(match[1]);
+        day = parseInt(match[2], 10);
+        year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
+      } else if (format === formats[1]) {
+        // MM/DD/YYYY format
+        month = parseInt(match[1], 10);
+        day = parseInt(match[2], 10);
+        year = parseInt(match[3], 10);
+        // Handle 2-digit years
+        if (year < 100) {
+          year += year < 50 ? 2000 : 1900;
+        }
+      } else if (format === formats[2]) {
+        // YYYY-MM-DD format
+        year = parseInt(match[1], 10);
+        month = parseInt(match[2], 10);
+        day = parseInt(match[3], 10);
+      } else if (format === formats[3]) {
+        // MMDDYYYY format
+        month = parseInt(match[1], 10);
+        day = parseInt(match[2], 10);
+        year = parseInt(match[3], 10);
+        if (year < 100) {
+          year += year < 50 ? 2000 : 1900;
+        }
+      }
+      
+      // Validate parsed values
+      if (month && day && year && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+    }
+  }
+  
+  // Fallback to original parsing
+  return toISOFromTextDate(dateString, true);
+}
+
+// Validate weeks_back parameter with bounds checking
+function validateWeeksBackParameter(weeksBack) {
+  // Convert to number if it's a string
+  const numWeeks = typeof weeksBack === 'string' ? parseInt(weeksBack, 10) : weeksBack;
+  
+  // If invalid or not provided, default to 2 weeks (Requirements 4.1, 4.3)
+  if (isNaN(numWeeks) || numWeeks < 1) {
+    return 2;
+  }
+  
+  // Set reasonable upper bound to prevent excessive historical fetching
+  // Maximum of 12 weeks (3 months) to prevent abuse
+  if (numWeeks > 12) {
+    return 12;
+  }
+  
+  return numWeeks;
+}
+
+// Enhanced date validation for edge cases
+function isValidReleaseDate(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const now = new Date();
+  const minDate = new Date('2020-01-01'); // Reasonable minimum date
+  const maxDate = new Date(now.getFullYear() + 2, 11, 31); // Maximum 2 years in future
+  
+  return date >= minDate && date <= maxDate;
 }
 
 async function fetchText(url) {
@@ -105,12 +240,26 @@ function extractCardList(html) {
 }
 
 // Detail page: try to read a "Release Date ..." label; otherwise keep the calendar date.
-function extractDetail(html, fallback) {
+function extractDetail(html, fallback, isHistorical = false) {
   const $ = loadHTML(html);
   const h1 = $("h1").first().text().replace(/\s+/g, " ").trim();
   const pageText = $("body").text().replace(/\s+/g, " ");
   const m = pageText.match(/Release Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i);
-  const dateISO = m ? toISOFromTextDate(m[1]) : (fallback?.date_hint ? toISOFromTextDate(fallback.date_hint) : null);
+  
+  let dateISO = null;
+  if (m) {
+    // Try enhanced parsing for historical dates first
+    dateISO = isHistorical ? parseHistoricalDate(m[1]) : toISOFromTextDate(m[1], isHistorical);
+  } else if (fallback?.date_hint) {
+    // Use enhanced parsing for fallback date as well
+    dateISO = isHistorical ? parseHistoricalDate(fallback.date_hint) : toISOFromTextDate(fallback.date_hint, isHistorical);
+  }
+  
+  // Validate the parsed date
+  if (dateISO && !isValidReleaseDate(dateISO)) {
+    dateISO = null;
+  }
+  
   const brand = normalizeBrand(h1) || fallback?.brand || null;
 
   // product/hero image
@@ -187,10 +336,12 @@ export default async function handler(req, res) {
       const detailHtml = await fetchText(it.url);
       out.push(extractDetail(detailHtml, it));
     } catch {
+      // Use enhanced date parsing for fallback as well
+      const parsedDate = parseHistoricalDate(it.date_hint) || toISOFromTextDate(it.date_hint);
       out.push({
         title: it.title,
         brand: it.brand,
-        release_date: toISOFromTextDate(it.date_hint),
+        release_date: isValidReleaseDate(parsedDate) ? parsedDate : null,
         url: it.url,
         image: it.image || null
         // no price fields
