@@ -50,13 +50,22 @@
     - Create deduplication logic for historical releases
     - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 4. Enhance API endpoint with historical parameters
-  - [ ] 4.1 Add new parameter parsing for historical options
+- [x] 4. Enhance API endpoint with historical parameters
+
+
+
+
+
+  - [x] 4.1 Add new parameter parsing for historical options
+
+
     - Parse include_historical, weeks_back, and historical_only parameters
     - Add parameter validation and default value handling
     - _Requirements: 4.1, 4.2, 4.3, 5.1_
   
-  - [ ] 4.2 Implement response merging logic
+  - [x] 4.2 Implement response merging logic
+
+
     - Create ResponseMerger class to combine current and historical data
     - Add sorting logic that handles both current and historical releases
     - Implement deduplication across current and historical results

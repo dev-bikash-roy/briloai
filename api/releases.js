@@ -1,4 +1,5 @@
 import { load as loadHTML } from "cheerio";
+import HistoricalDataFetcher from "./historical-data-fetcher.js";
 
 // Base calendar & list pages (pagination via ?page=N)
 const BASE = "https://www.kicksonfire.com";
@@ -276,6 +277,177 @@ function extractDetail(html, fallback, isHistorical = false) {
   };
 }
 
+/**
+ * ResponseMerger - Handles merging current and historical release data
+ * Requirements: 1.1, 1.2, 5.2
+ */
+class ResponseMerger {
+  /**
+   * Merge current and historical releases into a unified response
+   * @param {Array} currentReleases - Array of current/upcoming releases
+   * @param {Array} historicalReleases - Array of historical releases
+   * @param {Object} options - Merging options
+   * @returns {Object} Merged response with releases and metadata
+   */
+  mergeCurrentAndHistorical(currentReleases = [], historicalReleases = [], options = {}) {
+    const {
+      includeHistorical = false,
+      historicalOnly = false,
+      limit = 15,
+      weeksBack = 2
+    } = options;
+
+    let combinedReleases = [];
+    let currentCount = 0;
+    let historicalCount = 0;
+
+    // Determine which releases to include based on parameters
+    if (historicalOnly) {
+      // Only historical releases (Requirements 1.1, 1.2)
+      combinedReleases = [...historicalReleases];
+      historicalCount = historicalReleases.length;
+    } else if (includeHistorical) {
+      // Both current and historical releases (Requirements 1.1, 1.2, 5.2)
+      combinedReleases = [...currentReleases, ...historicalReleases];
+      currentCount = currentReleases.length;
+      historicalCount = historicalReleases.length;
+    } else {
+      // Only current releases (default behavior for backward compatibility)
+      combinedReleases = [...currentReleases];
+      currentCount = currentReleases.length;
+    }
+
+    // Remove duplicates across current and historical results (Requirements 5.2)
+    const deduplicated = this.deduplicateReleases(combinedReleases);
+
+    // Sort releases appropriately based on whether historical data is included
+    const sorted = this.sortByRelevance(deduplicated, includeHistorical, historicalOnly);
+
+    // Apply final limit
+    const finalReleases = sorted.slice(0, limit);
+
+    return {
+      releases: finalReleases,
+      metadata: {
+        includes_historical: includeHistorical || historicalOnly,
+        historical_only: historicalOnly,
+        historical_weeks_back: includeHistorical || historicalOnly ? weeksBack : null,
+        historical_count: historicalCount,
+        current_count: currentCount,
+        total_before_limit: deduplicated.length,
+        final_count: finalReleases.length
+      }
+    };
+  }
+
+  /**
+   * Remove duplicate releases based on URL and title similarity
+   * @param {Array} releases - Array of release objects
+   * @returns {Array} Deduplicated array of releases
+   */
+  deduplicateReleases(releases) {
+    const seen = new Map();
+    const deduplicated = [];
+
+    for (const release of releases) {
+      // Primary deduplication by URL
+      if (release.url && seen.has(release.url)) {
+        continue;
+      }
+
+      // Secondary deduplication by title similarity (for cases where URLs might differ)
+      const normalizedTitle = this.normalizeTitle(release.title);
+      let isDuplicate = false;
+
+      for (const [existingUrl, existingTitle] of seen.entries()) {
+        if (this.areTitlesSimilar(normalizedTitle, existingTitle)) {
+          isDuplicate = true;
+          break;
+        }
+      }
+
+      if (!isDuplicate) {
+        seen.set(release.url, normalizedTitle);
+        deduplicated.push(release);
+      }
+    }
+
+    return deduplicated;
+  }
+
+  /**
+   * Sort releases by relevance based on whether historical data is included
+   * @param {Array} releases - Array of release objects
+   * @param {boolean} includeHistorical - Whether historical data is included
+   * @param {boolean} historicalOnly - Whether only historical data is requested
+   * @returns {Array} Sorted array of releases
+   */
+  sortByRelevance(releases, includeHistorical, historicalOnly) {
+    return releases.sort((a, b) => {
+      const dateA = Date.parse(a.release_date || "1970-01-01");
+      const dateB = Date.parse(b.release_date || "1970-01-01");
+      const now = Date.now();
+
+      if (historicalOnly) {
+        // For historical only, sort by date descending (most recent historical first)
+        return dateB - dateA;
+      } else if (includeHistorical) {
+        // For mixed data, prioritize upcoming releases, then recent historical
+        const aIsUpcoming = dateA > now;
+        const bIsUpcoming = dateB > now;
+
+        if (aIsUpcoming && !bIsUpcoming) {
+          return -1; // a (upcoming) comes before b (historical)
+        } else if (!aIsUpcoming && bIsUpcoming) {
+          return 1; // b (upcoming) comes before a (historical)
+        } else if (aIsUpcoming && bIsUpcoming) {
+          return dateA - dateB; // Both upcoming, sort by date ascending
+        } else {
+          return dateB - dateA; // Both historical, sort by date descending
+        }
+      } else {
+        // Default behavior: sort upcoming releases by date ascending
+        return dateA - dateB;
+      }
+    });
+  }
+
+  /**
+   * Normalize title for comparison
+   * @param {string} title - Release title
+   * @returns {string} Normalized title
+   */
+  normalizeTitle(title) {
+    if (!title) return '';
+    return title
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '') // Remove special characters
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+  }
+
+  /**
+   * Check if two titles are similar enough to be considered duplicates
+   * @param {string} title1 - First title
+   * @param {string} title2 - Second title
+   * @returns {boolean} True if titles are similar
+   */
+  areTitlesSimilar(title1, title2) {
+    if (!title1 || !title2) return false;
+    
+    // Simple similarity check - if 80% of words match, consider similar
+    const words1 = title1.split(' ').filter(w => w.length > 2);
+    const words2 = title2.split(' ').filter(w => w.length > 2);
+    
+    if (words1.length === 0 || words2.length === 0) return false;
+    
+    const commonWords = words1.filter(word => words2.includes(word));
+    const similarity = commonWords.length / Math.max(words1.length, words2.length);
+    
+    return similarity >= 0.8;
+  }
+}
+
 export default async function handler(req, res) {
   const method = req.method || "GET";
   let params = {};
@@ -300,75 +472,128 @@ export default async function handler(req, res) {
   const startPage = parseInt(params.page || "1", 10) || 1;
   const pages = Math.min(parseInt(params.pages || DEFAULT_PAGES, 10) || DEFAULT_PAGES, 10);
 
-  // Cache
-  const cacheKey = JSON.stringify({ brandFilter, limit, startPage, pages });
+  // Parse new historical parameters (Requirements 4.1, 4.2, 4.3, 5.1)
+  const includeHistorical = params.include_historical === true || params.include_historical === "true";
+  const weeksBack = validateWeeksBackParameter(params.weeks_back);
+  const historicalOnly = params.historical_only === true || params.historical_only === "true";
+
+  // Cache (include historical parameters in cache key)
+  const cacheKey = JSON.stringify({ 
+    brandFilter, 
+    limit, 
+    startPage, 
+    pages, 
+    includeHistorical, 
+    weeksBack, 
+    historicalOnly 
+  });
   const cached = cache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.at < TTL_MS) return res.json(cached.data);
 
-  // 1) collect list items across pages
-  const list = [];
-  for (let p = 0; p < pages; p++) {
-    const url = `${BASE}${CAL_PATH}?page=${startPage + p}`;
+  // Initialize response merger and historical data fetcher
+  const responseMerger = new ResponseMerger();
+  const historicalFetcher = new HistoricalDataFetcher();
+
+  let currentReleases = [];
+  let historicalReleases = [];
+
+  // 1) Fetch current releases (unless historical_only is true)
+  if (!historicalOnly) {
+    // collect list items across pages
+    const list = [];
+    for (let p = 0; p < pages; p++) {
+      const url = `${BASE}${CAL_PATH}?page=${startPage + p}`;
+      try {
+        const html = await fetchText(url);
+        list.push(...extractCardList(html));
+        if (list.length >= limit) break;
+      } catch {
+        // continue on failure
+      }
+    }
+
+    // unique & trim to limit
+    const seen = new Set();
+    const unique = [];
+    for (const it of list) {
+      if (seen.has(it.url)) continue;
+      seen.add(it.url);
+      unique.push(it);
+      if (unique.length >= limit) break;
+    }
+
+    // 2) visit detail pages (no price collected)
+    const out = [];
+    for (const it of unique) {
+      try {
+        const detailHtml = await fetchText(it.url);
+        out.push(extractDetail(detailHtml, it));
+      } catch {
+        // Use enhanced date parsing for fallback as well
+        const parsedDate = parseHistoricalDate(it.date_hint) || toISOFromTextDate(it.date_hint);
+        out.push({
+          title: it.title,
+          brand: it.brand,
+          release_date: isValidReleaseDate(parsedDate) ? parsedDate : null,
+          url: it.url,
+          image: it.image || null
+          // no price fields
+        });
+      }
+      if (out.length >= limit) break;
+    }
+
+    // filter current releases by brand
+    currentReleases = brandFilter
+      ? out.filter(r => (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase()))
+      : out;
+  }
+
+  // 2) Fetch historical releases if requested
+  if (includeHistorical || historicalOnly) {
     try {
-      const html = await fetchText(url);
-      list.push(...extractCardList(html));
-      if (list.length >= limit) break;
-    } catch {
-      // continue on failure
+      console.log(`Fetching historical releases: weeksBack=${weeksBack}, brandFilter="${brandFilter}"`);
+      historicalReleases = await historicalFetcher.fetchHistoricalReleases(
+        weeksBack,
+        brandFilter,
+        limit
+      );
+      console.log(`Historical fetch result: ${historicalReleases.length} releases found`);
+    } catch (error) {
+      console.error('Error fetching historical releases:', error);
+      // Continue with empty historical releases for graceful degradation
+      historicalReleases = [];
     }
   }
 
-  // unique & trim to limit
-  const seen = new Set();
-  const unique = [];
-  for (const it of list) {
-    if (seen.has(it.url)) continue;
-    seen.add(it.url);
-    unique.push(it);
-    if (unique.length >= limit) break;
-  }
-
-  // 2) visit detail pages (no price collected)
-  const out = [];
-  for (const it of unique) {
-    try {
-      const detailHtml = await fetchText(it.url);
-      out.push(extractDetail(detailHtml, it));
-    } catch {
-      // Use enhanced date parsing for fallback as well
-      const parsedDate = parseHistoricalDate(it.date_hint) || toISOFromTextDate(it.date_hint);
-      out.push({
-        title: it.title,
-        brand: it.brand,
-        release_date: isValidReleaseDate(parsedDate) ? parsedDate : null,
-        url: it.url,
-        image: it.image || null
-        // no price fields
-      });
+  // 3) Merge current and historical releases using ResponseMerger
+  const mergedResponse = responseMerger.mergeCurrentAndHistorical(
+    currentReleases,
+    historicalReleases,
+    {
+      includeHistorical,
+      historicalOnly,
+      limit,
+      weeksBack
     }
-    if (out.length >= limit) break;
-  }
+  );
 
-  // filter & sort
-  const filtered = brandFilter
-    ? out.filter(r => (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase()))
-    : out;
-
-  filtered.sort((a, b) => {
-    const ta = Date.parse(a.release_date || "9999-12-31");
-    const tb = Date.parse(b.release_date || "9999-12-31");
-    return ta - tb;
-  });
-
+  // 4) Build final payload with enhanced metadata
   const payload = {
-    results: filtered,
+    results: mergedResponse.releases,
     meta: {
       source: "kicksonfire",
       start_page: startPage,
       pages_fetched: pages,
-      count: filtered.length,
-      last_updated: new Date().toISOString()
+      count: mergedResponse.releases.length,
+      last_updated: new Date().toISOString(),
+      // Enhanced metadata for historical support (Requirements 5.2, 5.3)
+      includes_historical: mergedResponse.metadata.includes_historical,
+      historical_only: mergedResponse.metadata.historical_only,
+      historical_weeks_back: mergedResponse.metadata.historical_weeks_back,
+      historical_count: mergedResponse.metadata.historical_count,
+      current_count: mergedResponse.metadata.current_count
     }
   };
 

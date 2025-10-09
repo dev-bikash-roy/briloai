@@ -29,9 +29,11 @@ class HistoricalDataFetcher {
     try {
       // Calculate date range for filtering
       const dateRange = this.dateCalculator.calculateDateRange(weeksBack);
+      console.log(`Historical date range: ${dateRange.startDateISO} to ${dateRange.endDateISO}`);
       
       // Fetch releases from multiple pages
       const allReleases = await this.fetchMultiplePages(MAX_HISTORICAL_PAGES);
+      console.log(`Fetched ${allReleases.length} total releases from ${MAX_HISTORICAL_PAGES} pages`);
       
       // Filter for historical releases within date range
       const historicalReleases = this.filterHistoricalReleases(
@@ -39,11 +41,13 @@ class HistoricalDataFetcher {
         dateRange.startDate, 
         dateRange.endDate
       );
+      console.log(`Found ${historicalReleases.length} historical releases in date range`);
       
       // Apply brand filtering if specified
       const brandFiltered = brandFilter 
         ? this.filterByBrand(historicalReleases, brandFilter)
         : historicalReleases;
+      console.log(`After brand filtering: ${brandFiltered.length} releases`);
       
       // Fetch detailed information for each release
       const detailedReleases = await this.fetchDetailedReleases(brandFiltered, limit);
@@ -80,11 +84,18 @@ class HistoricalDataFetcher {
         }
         
         const pageReleases = this.parseHistoricalPage(html, page);
+        console.log(`Page ${page}: Found ${pageReleases.length} releases`);
         
         if (pageReleases.length === 0) {
           // No more releases found, stop fetching
           console.log(`No releases found on page ${page}, stopping pagination`);
           break;
+        }
+        
+        // Log a sample of dates found on this page
+        if (pageReleases.length > 0) {
+          const sampleDates = pageReleases.slice(0, 3).map(r => r.date_hint).filter(d => d);
+          console.log(`Sample dates from page ${page}:`, sampleDates);
         }
         
         allReleases.push(...pageReleases);

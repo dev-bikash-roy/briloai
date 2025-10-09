@@ -13,16 +13,16 @@ class DateRangeCalculator {
     const validatedWeeksBack = this.validateWeeksBack(weeksBack);
     
     const now = new Date();
-    const endDate = new Date(now);
     
-    // Calculate start date by going back the specified number of weeks
+    // For historical data, we want a range that's entirely in the past
+    // End date should be "now" (or slightly before to avoid edge cases)
+    const endDate = new Date(now);
+    endDate.setHours(23, 59, 59, 999);
+    
+    // Calculate start date by going back the specified number of weeks from now
     const startDate = new Date(now);
     startDate.setDate(now.getDate() - (validatedWeeksBack * 7));
-    
-    // Set times to ensure proper range coverage
-    // Start of day for start date, end of day for end date
     startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(23, 59, 59, 999);
     
     return {
       startDate,
