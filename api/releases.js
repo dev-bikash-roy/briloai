@@ -4,7 +4,7 @@ import HistoricalDataFetcher from "./historical-data-fetcher.js";
 // Base calendar & list pages (pagination via ?page=N)
 const BASE = "https://www.kicksonfire.com";
 const CAL_PATH = "/sneaker-release-dates";
-const DEFAULT_PAGES = 2;                // how many pages to fetch by default
+const DEFAULT_PAGES = 5;                // how many pages to fetch by default (increased for more upcoming releases)
 const UA = "GBNY-Brilo/1.1 (+contact@gbny.com)";
 
 // simple in-memory cache (per serverless instance)
@@ -14,9 +14,9 @@ const TTL_MS = 120 * 1000;
 // ---------- helpers ----------
 function monthToNum(m) {
   const map = {
-    january:1,february:2,march:3,april:4,may:5,june:6,
-    july:7,august:8,september:9,sept:9,october:10,november:11,december:12,
-    jan:1,feb:2,mar:3,apr:4,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12
+    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+    july: 7, august: 8, september: 9, sept: 9, october: 10, november: 11, december: 12,
+    jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
   };
   return map[m.toLowerCase()] || null;
 }
@@ -29,20 +29,20 @@ function toISOFromTextDate(s, allowHistorical = false) {
   const day = parseInt(m[2], 10);
   let year = m[3] ? parseInt(m[3], 10) : (new Date()).getFullYear();
   if (!month || !day) return null;
-  
+
   const now = new Date();
-  
+
   // Enhanced logic for historical date handling
   if (!m[3]) {
     const currentYear = now.getUTCFullYear();
     const tmp = new Date(Date.UTC(currentYear, month - 1, day));
-    
+
     if (allowHistorical) {
       // For historical parsing, if the date is more than 6 months in the future,
       // it's likely from the previous year
       const sixMonthsFromNow = new Date(now);
       sixMonthsFromNow.setMonth(now.getMonth() + 6);
-      
+
       if (tmp > sixMonthsFromNow) {
         year = currentYear - 1;
       } else {
@@ -57,21 +57,21 @@ function toISOFromTextDate(s, allowHistorical = false) {
       }
     }
   }
-  
+
   // Validate the constructed date
   const constructedDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   if (isNaN(constructedDate.getTime())) {
     return null;
   }
-  
+
   // Additional validation for reasonable date ranges
   const minYear = 2020; // Reasonable minimum year for sneaker releases
   const maxYear = now.getUTCFullYear() + 2; // Maximum 2 years in the future
-  
+
   if (year < minYear || year > maxYear) {
     return null;
   }
-  
+
   return constructedDate.toISOString();
 }
 
@@ -97,7 +97,7 @@ function normalizeBrand(s) {
 // Enhanced date parsing for historical data with better edge case handling
 function parseHistoricalDate(dateString) {
   if (!dateString) return null;
-  
+
   // Handle various date formats that might appear in historical data
   const formats = [
     // Standard format: "Month DD, YYYY" or "Month DD"
@@ -109,12 +109,12 @@ function parseHistoricalDate(dateString) {
     // Compact format: "MMDDYYYY" or "MMDDYY"
     /(\d{2})(\d{2})(\d{2,4})/
   ];
-  
+
   for (const format of formats) {
     const match = dateString.match(format);
     if (match) {
       let year, month, day;
-      
+
       if (format === formats[0]) {
         // Month name format
         month = monthToNum(match[1]);
@@ -143,7 +143,7 @@ function parseHistoricalDate(dateString) {
           year += year < 50 ? 2000 : 1900;
         }
       }
-      
+
       // Validate parsed values
       if (month && day && year && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
         const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
@@ -153,7 +153,7 @@ function parseHistoricalDate(dateString) {
       }
     }
   }
-  
+
   // Fallback to original parsing
   return toISOFromTextDate(dateString, true);
 }
@@ -162,32 +162,32 @@ function parseHistoricalDate(dateString) {
 function validateWeeksBackParameter(weeksBack) {
   // Convert to number if it's a string
   const numWeeks = typeof weeksBack === 'string' ? parseInt(weeksBack, 10) : weeksBack;
-  
+
   // If invalid or not provided, default to 2 weeks (Requirements 4.1, 4.3)
   if (isNaN(numWeeks) || numWeeks < 1) {
     return 2;
   }
-  
+
   // Set reasonable upper bound to prevent excessive historical fetching
   // Maximum of 12 weeks (3 months) to prevent abuse
   if (numWeeks > 12) {
     return 12;
   }
-  
+
   return numWeeks;
 }
 
 // Enhanced date validation for edge cases
 function isValidReleaseDate(dateString) {
   if (!dateString) return false;
-  
+
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return false;
-  
+
   const now = new Date();
   const minDate = new Date('2020-01-01'); // Reasonable minimum date
   const maxDate = new Date(now.getFullYear() + 2, 11, 31); // Maximum 2 years in future
-  
+
   return date >= minDate && date <= maxDate;
 }
 
@@ -246,7 +246,7 @@ function extractDetail(html, fallback, isHistorical = false) {
   const h1 = $("h1").first().text().replace(/\s+/g, " ").trim();
   const pageText = $("body").text().replace(/\s+/g, " ");
   const m = pageText.match(/Release Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i);
-  
+
   let dateISO = null;
   if (m) {
     // Try enhanced parsing for historical dates first
@@ -255,12 +255,12 @@ function extractDetail(html, fallback, isHistorical = false) {
     // Use enhanced parsing for fallback date as well
     dateISO = isHistorical ? parseHistoricalDate(fallback.date_hint) : toISOFromTextDate(fallback.date_hint, isHistorical);
   }
-  
+
   // Validate the parsed date
   if (dateISO && !isValidReleaseDate(dateISO)) {
     dateISO = null;
   }
-  
+
   const brand = normalizeBrand(h1) || fallback?.brand || null;
 
   // product/hero image
@@ -434,16 +434,16 @@ class ResponseMerger {
    */
   areTitlesSimilar(title1, title2) {
     if (!title1 || !title2) return false;
-    
+
     // Simple similarity check - if 80% of words match, consider similar
     const words1 = title1.split(' ').filter(w => w.length > 2);
     const words2 = title2.split(' ').filter(w => w.length > 2);
-    
+
     if (words1.length === 0 || words2.length === 0) return false;
-    
+
     const commonWords = words1.filter(word => words2.includes(word));
     const similarity = commonWords.length / Math.max(words1.length, words2.length);
-    
+
     return similarity >= 0.8;
   }
 }
@@ -468,9 +468,9 @@ export default async function handler(req, res) {
   }
 
   const brandFilter = (params.brand || "").toString().trim();
-  const limit = Math.min(parseInt(params.limit || "15", 10) || 15, 50);
+  const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200); // Increased default and max limit
   const startPage = parseInt(params.page || "1", 10) || 1;
-  const pages = Math.min(parseInt(params.pages || DEFAULT_PAGES, 10) || DEFAULT_PAGES, 10);
+  const pages = Math.min(parseInt(params.pages || DEFAULT_PAGES, 10) || DEFAULT_PAGES, 20); // Allow up to 20 pages
 
   // Parse new historical parameters (Requirements 4.1, 4.2, 4.3, 5.1)
   const includeHistorical = params.include_historical === true || params.include_historical === "true";
@@ -478,14 +478,14 @@ export default async function handler(req, res) {
   const historicalOnly = params.historical_only === true || params.historical_only === "true";
 
   // Cache (include historical parameters in cache key)
-  const cacheKey = JSON.stringify({ 
-    brandFilter, 
-    limit, 
-    startPage, 
-    pages, 
-    includeHistorical, 
-    weeksBack, 
-    historicalOnly 
+  const cacheKey = JSON.stringify({
+    brandFilter,
+    limit,
+    startPage,
+    pages,
+    includeHistorical,
+    weeksBack,
+    historicalOnly
   });
   const cached = cache.get(cacheKey);
   const now = Date.now();
@@ -506,9 +506,16 @@ export default async function handler(req, res) {
       const url = `${BASE}${CAL_PATH}?page=${startPage + p}`;
       try {
         const html = await fetchText(url);
-        list.push(...extractCardList(html));
-        if (list.length >= limit) break;
-      } catch {
+        const pageReleases = extractCardList(html);
+        list.push(...pageReleases);
+
+        // Log progress for debugging
+        console.log(`Fetched page ${startPage + p}: ${pageReleases.length} releases (total: ${list.length})`);
+
+        // Don't break early - fetch all requested pages to get Oct-Dec data
+        // if (list.length >= limit) break;
+      } catch (error) {
+        console.error(`Failed to fetch page ${startPage + p}:`, error.message);
         // continue on failure
       }
     }
@@ -520,12 +527,16 @@ export default async function handler(req, res) {
       if (seen.has(it.url)) continue;
       seen.add(it.url);
       unique.push(it);
-      if (unique.length >= limit) break;
+      // Don't break early - process all fetched releases
+      // if (unique.length >= limit) break;
     }
 
     // 2) visit detail pages (no price collected)
     const out = [];
-    for (const it of unique) {
+    console.log(`Processing ${unique.length} unique releases for details`);
+
+    for (let i = 0; i < unique.length; i++) {
+      const it = unique[i];
       try {
         const detailHtml = await fetchText(it.url);
         out.push(extractDetail(detailHtml, it));
@@ -541,7 +552,11 @@ export default async function handler(req, res) {
           // no price fields
         });
       }
-      if (out.length >= limit) break;
+
+      // Add small delay to be respectful to the server
+      if (i % 10 === 0 && i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
 
     // filter current releases by brand
@@ -580,13 +595,16 @@ export default async function handler(req, res) {
   );
 
   // 4) Build final payload with enhanced metadata
+  const finalResults = mergedResponse.releases.slice(0, limit); // Apply final limit here
+
   const payload = {
-    results: mergedResponse.releases,
+    results: finalResults,
     meta: {
       source: "kicksonfire",
       start_page: startPage,
       pages_fetched: pages,
-      count: mergedResponse.releases.length,
+      count: finalResults.length,
+      total_found: mergedResponse.releases.length, // Total before limit
       last_updated: new Date().toISOString(),
       // Enhanced metadata for historical support (Requirements 5.2, 5.3)
       includes_historical: mergedResponse.metadata.includes_historical,
