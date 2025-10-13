@@ -1,15 +1,115 @@
 import { load as loadHTML } from "cheerio";
 import HistoricalDataFetcher from "./historical-data-fetcher.js";
 
-// Base calendar & list pages (pagination via ?page=N)
+// Base calendar & list pages (using KicksOnFire as reliable source)
 const BASE = "https://www.kicksonfire.com";
 const CAL_PATH = "/sneaker-release-dates";
+
+// GBNY manual data (since their Elfsight widget can't be scraped)
+// This would need to be updated manually or through a different approach
+const GBNY_MANUAL_RELEASES = [
+  {
+    title: "Air Jordan Luka 4 \"Hčerka\" - Men's HF0823-600",
+    brand: "Jordan",
+    release_date: "2025-11-15T12:00:00.000Z",
+    date_hint: "Nov 15",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#luka-4",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/de18341e-9bdc-47d3-8bc5-51b7137994aa/AURORA_HF0823-600_PHSRH000-2000.jpg"
+  },
+  {
+    title: "Nike Sabrina 3 Gamer - Women's II3985-300",
+    brand: "Nike", 
+    release_date: "2025-11-18T12:00:00.000Z",
+    date_hint: "Nov 18",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#sabrina-3",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/6ba9d4b5-97e7-436c-b2b1-4bf42cccddaa/AURORA_II3985-300_PHSRH000-2000.jpg"
+  },
+  {
+    title: "Air Jordan 1 Retro High OG \"Fir\" - Family Collection",
+    brand: "Jordan",
+    release_date: "2025-11-22T12:00:00.000Z", 
+    date_hint: "Nov 22",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-1-fir",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/b81a8087-cd3e-4d87-89cd-188a980b7377/AURORA_FD2596-101_PHSRH000-2000.jpg"
+  },
+  {
+    title: "Nike Ja 3 \"Zombie\" - Men's HV9923-700",
+    brand: "Nike",
+    release_date: "2025-11-25T12:00:00.000Z",
+    date_hint: "Nov 25", 
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#ja-3-zombie",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/7d56390e-299b-4f9d-b799-863e295ba974/AURORA_HV9923-700_PHSRH000-2000.jpg"
+  },
+  {
+    title: "LeBron XXIII \"Chosen One\" - Men's IF0694-001",
+    brand: "Nike",
+    release_date: "2025-11-28T12:00:00.000Z",
+    date_hint: "Nov 28",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#lebron-23",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/bbd9bfca-7e53-4bf6-8a67-0c34b3ce1e2b/Instagram-Post-Run-Bold-Run-Jordan-.gif"
+  },
+  {
+    title: "Nike Air Foamposite One \"Carbon Fiber\" - Men's HF2902-002",
+    brand: "Nike",
+    release_date: "2025-12-01T12:00:00.000Z",
+    date_hint: "Dec 1",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#foamposite-carbon",
+    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/8b1f5a51-2fe6-4c2c-9121-9f5422bab620/AURORA_HF2902-002_PHSRH000-2000.jpg"
+  },
+  {
+    title: "Air Jordan 3 Retro \"Family Affair\" - Family Collection",
+    brand: "Jordan",
+    release_date: "2025-12-05T12:00:00.000Z",
+    date_hint: "Dec 5",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-3-family",
+    image: null
+  },
+  {
+    title: "Air Jordan 1 Retro Low OG \"Zion Williamson Voodoo Alternate\" - Family Collection",
+    brand: "Jordan", 
+    release_date: "2025-12-10T12:00:00.000Z",
+    date_hint: "Dec 10",
+    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-1-zion",
+    image: null
+  }
+];
 const DEFAULT_PAGES = 5;                // how many pages to fetch by default (increased for more upcoming releases)
 const UA = "GBNY-Brilo/1.1 (+contact@gbny.com)";
 
-// simple in-memory cache (per serverless instance)
+// Enhanced caching system with separate historical cache
 const cache = new Map();
-const TTL_MS = 120 * 1000;
+const historicalCache = new Map();
+const TTL_MS = 300 * 1000; // 5 minutes for current releases
+const HISTORICAL_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours for historical data (longer since it doesn't change)
+
+// Cache management utilities
+function cleanExpiredCache() {
+  const now = Date.now();
+  
+  // Clean main cache
+  for (const [key, value] of cache.entries()) {
+    if (now - value.at > TTL_MS) {
+      cache.delete(key);
+    }
+  }
+  
+  // Clean historical cache
+  for (const [key, value] of historicalCache.entries()) {
+    if (now - value.at > HISTORICAL_TTL_MS) {
+      historicalCache.delete(key);
+    }
+  }
+}
+
+// Cache statistics for monitoring
+function getCacheStats() {
+  return {
+    main_cache_size: cache.size,
+    historical_cache_size: historicalCache.size,
+    main_ttl_minutes: TTL_MS / (60 * 1000),
+    historical_ttl_hours: HISTORICAL_TTL_MS / (60 * 60 * 1000)
+  };
+}
 
 // ---------- helpers ----------
 function monthToNum(m) {
@@ -192,9 +292,21 @@ function isValidReleaseDate(dateString) {
 }
 
 async function fetchText(url) {
-  const r = await fetch(url, { headers: { "user-agent": UA } });
-  if (!r.ok) throw new Error("fetch failed " + r.status);
-  return r.text();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  
+  try {
+    const r = await fetch(url, { 
+      headers: { "user-agent": UA },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!r.ok) throw new Error("fetch failed " + r.status);
+    return r.text();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
 }
 
 function absolute(href) {
@@ -202,57 +314,39 @@ function absolute(href) {
 }
 
 // --------- PARSERS (no price capture) ---------
-// Cards live under: .releases-container .release-item-continer
-// Each card has: a.release-item > spans: .release-price-from (date or $price), .release-item-title (title).
-// Image at .release-item-image img[src]
-function extractCardList(html) {
-  const $ = loadHTML(html);
-  const items = [];
-  $(".releases-container .release-item-continer").each((_, el) => {
-    const card = $(el);
-    const a = card.find("a.release-item").first();
-    if (!a.length) return;
-
-    const href = a.attr("href");
-    const title = a.find(".release-item-title").first().text().trim() || a.attr("title") || "";
-    if (!title) return;
-
-    let stamp = a.find(".release-price-from").first().text().trim();
-    const img = a.find(".release-item-image img").attr("src") || a.find("img").attr("data-src") || a.find("img").attr("src");
-
-    // If the stamp is a price (starts with $), ignore it entirely (do not store or show)
-    let date_hint = null;
-    if (stamp && !/^\$/.test(stamp)) {
-      date_hint = stamp;           // e.g., "Sep 13"
-    }
-
-    items.push({
-      title,
-      brand: normalizeBrand(title) || null,
-      date_hint,
-      url: absolute(href),
-      image: img ? (img.startsWith("http") ? img : `https:${img}`) : null
-    });
-  });
-
-  // dedupe by URL
-  const seen = new Set();
-  return items.filter(it => (seen.has(it.url) ? false : (seen.add(it.url), true)));
-}
+// Updated for GBNY.com structure
+// --------- SIMPLE MANUAL DATA APPROACH ---------
+// Since GBNY uses Elfsight widget that can't be scraped, we use manual data
+// This could be updated via a separate process or API in the future
 
 // Detail page: try to read a "Release Date ..." label; otherwise keep the calendar date.
 function extractDetail(html, fallback, isHistorical = false) {
   const $ = loadHTML(html);
-  const h1 = $("h1").first().text().replace(/\s+/g, " ").trim();
+  const h1 = $("h1, .product-title, .page-title").first().text().replace(/\s+/g, " ").trim();
   const pageText = $("body").text().replace(/\s+/g, " ");
-  const m = pageText.match(/Release Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i);
-
+  
+  // Try multiple patterns for release date
+  const datePatterns = [
+    /Release Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
+    /Launch Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
+    /Available\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
+    /Drop Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i
+  ];
+  
   let dateISO = null;
-  if (m) {
-    // Try enhanced parsing for historical dates first
-    dateISO = isHistorical ? parseHistoricalDate(m[1]) : toISOFromTextDate(m[1], isHistorical);
+  let matchedDate = null;
+  
+  for (const pattern of datePatterns) {
+    const m = pageText.match(pattern);
+    if (m) {
+      matchedDate = m[1];
+      break;
+    }
+  }
+  
+  if (matchedDate) {
+    dateISO = isHistorical ? parseHistoricalDate(matchedDate) : toISOFromTextDate(matchedDate, isHistorical);
   } else if (fallback?.date_hint) {
-    // Use enhanced parsing for fallback date as well
     dateISO = isHistorical ? parseHistoricalDate(fallback.date_hint) : toISOFromTextDate(fallback.date_hint, isHistorical);
   }
 
@@ -263,9 +357,16 @@ function extractDetail(html, fallback, isHistorical = false) {
 
   const brand = normalizeBrand(h1) || fallback?.brand || null;
 
-  // product/hero image
-  let image = $("img").first().attr("src") || $("img").first().attr("data-src") || fallback?.image || null;
-  if (image && !image.startsWith("http")) image = "https:" + image;
+  // Try multiple selectors for product image
+  let image = $(".product-image img, .hero-image img, .main-image img").first().attr("src") ||
+              $(".product-image img, .hero-image img, .main-image img").first().attr("data-src") ||
+              $("img").first().attr("src") || 
+              $("img").first().attr("data-src") || 
+              fallback?.image || null;
+              
+  if (image && !image.startsWith("http")) {
+    image = image.startsWith("//") ? `https:${image}` : `${BASE}${image}`;
+  }
 
   return {
     title: h1 || fallback?.title,
@@ -275,6 +376,108 @@ function extractDetail(html, fallback, isHistorical = false) {
     image
     // no price fields
   };
+}
+
+// Fast KicksOnFire scraping (optimized for 1 month of releases)
+async function fetchKicksOnFireReleases(maxPages = 2, brandFilter = '') {
+  const releases = [];
+  const now = new Date();
+  const oneMonthFromNow = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000));
+
+  console.log(`Fetching KicksOnFire releases (max ${maxPages} pages)...`);
+
+  for (let page = 1; page <= maxPages; page++) {
+    try {
+      const url = `${BASE}${CAL_PATH}?page=${page}`;
+      console.log(`Fetching KicksOnFire page ${page}...`);
+      
+      const html = await fetchText(url);
+      if (!html) continue;
+
+      const $ = loadHTML(html);
+      let pageReleases = 0;
+
+      $(".releases-container .release-item-continer").each((_, el) => {
+        const card = $(el);
+        const a = card.find("a.release-item").first();
+        if (!a.length) return;
+
+        const href = a.attr("href");
+        if (!href) return;
+
+        const title = a.find(".release-item-title").first().text().replace(/\s+/g, " ").trim();
+        const dateStamp = a.find(".release-price-from").first().text().trim();
+        
+        // Skip if it looks like a price instead of date
+        if (!title || !dateStamp || /^\$/.test(dateStamp)) return;
+
+        const brand = normalizeBrand(title);
+        
+        // Apply brand filter early if specified
+        if (brandFilter && brand && !brand.toLowerCase().includes(brandFilter.toLowerCase())) {
+          return;
+        }
+
+        const releaseDate = toISOFromTextDate(dateStamp);
+        
+        // Only include releases within the next month (for speed)
+        if (releaseDate) {
+          const releaseDateObj = new Date(releaseDate);
+          if (releaseDateObj > oneMonthFromNow) return;
+        }
+
+        const image = a.find("img").first().attr("src") || a.find("img").first().attr("data-src") || null;
+
+        releases.push({
+          title,
+          brand,
+          release_date: releaseDate,
+          url: absolute(href),
+          image: image ? absolute(image) : null,
+          source: 'kicksonfire'
+        });
+
+        pageReleases++;
+      });
+
+      console.log(`  Found ${pageReleases} releases on page ${page}`);
+      
+      // If no releases found on this page, stop fetching more pages
+      if (pageReleases === 0) {
+        console.log(`  No releases found on page ${page}, stopping`);
+        break;
+      }
+
+      // Minimal delay for speed
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+    } catch (error) {
+      console.error(`Error fetching KicksOnFire page ${page}:`, error.message);
+      continue;
+    }
+  }
+
+  return releases;
+}
+
+// Simple deduplication by title similarity
+function deduplicateReleasesByTitle(releases) {
+  const seen = new Set();
+  const deduplicated = [];
+
+  for (const release of releases) {
+    const normalizedTitle = release.title.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!seen.has(normalizedTitle)) {
+      seen.add(normalizedTitle);
+      deduplicated.push(release);
+    }
+  }
+
+  return deduplicated;
 }
 
 /**
@@ -468,17 +671,46 @@ export default async function handler(req, res) {
   }
 
   const brandFilter = (params.brand || "").toString().trim();
-  const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 200); // Increased default and max limit
+  const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 300); // Increased max limit
   const startPage = parseInt(params.page || "1", 10) || 1;
   const pages = Math.min(parseInt(params.pages || DEFAULT_PAGES, 10) || DEFAULT_PAGES, 20); // Allow up to 20 pages
+  
+  // Add performance warning for large requests
+  if (pages > 10 && limit > 100) {
+    console.log(`⚠️  Large request: ${pages} pages, ${limit} limit - this may take 30-60 seconds`);
+  }
 
   // Parse new historical parameters (Requirements 4.1, 4.2, 4.3, 5.1)
   const includeHistorical = params.include_historical === true || params.include_historical === "true";
   const weeksBack = validateWeeksBackParameter(params.weeks_back);
   const historicalOnly = params.historical_only === true || params.historical_only === "true";
 
-  // Cache (include historical parameters in cache key)
-  const cacheKey = JSON.stringify({
+  // Enhanced caching with separate historical cache
+  const now = Date.now();
+  
+  // Clean expired cache entries periodically (10% chance per request)
+  if (Math.random() < 0.1) {
+    cleanExpiredCache();
+  }
+  
+  // Generate cache keys for current and historical data
+  const currentCacheKey = JSON.stringify({
+    brandFilter,
+    limit,
+    startPage,
+    pages,
+    type: 'current'
+  });
+  
+  const historicalCacheKey = JSON.stringify({
+    brandFilter,
+    weeksBack,
+    limit,
+    type: 'historical'
+  });
+  
+  // Check for complete cached response first (for exact same request)
+  const completeCacheKey = JSON.stringify({
     brandFilter,
     limit,
     startPage,
@@ -487,9 +719,12 @@ export default async function handler(req, res) {
     weeksBack,
     historicalOnly
   });
-  const cached = cache.get(cacheKey);
-  const now = Date.now();
-  if (cached && now - cached.at < TTL_MS) return res.json(cached.data);
+  
+  const completeCached = cache.get(completeCacheKey);
+  if (completeCached && now - completeCached.at < TTL_MS) {
+    console.log('Cache hit: complete response');
+    return res.json(completeCached.data);
+  }
 
   // Initialize response merger and historical data fetcher
   const responseMerger = new ResponseMerger();
@@ -500,99 +735,99 @@ export default async function handler(req, res) {
 
   // 1) Fetch current releases (unless historical_only is true)
   if (!historicalOnly) {
-    // collect list items across pages
-    const list = [];
-    for (let p = 0; p < pages; p++) {
-      const url = `${BASE}${CAL_PATH}?page=${startPage + p}`;
-      try {
-        const html = await fetchText(url);
-        const pageReleases = extractCardList(html);
-        list.push(...pageReleases);
+    console.log('Fetching current releases from multiple sources...');
+    
+    // Start with manual GBNY data
+    let gbnyReleases = [...GBNY_MANUAL_RELEASES];
+    console.log(`Loaded ${gbnyReleases.length} manual GBNY releases`);
 
-        // Log progress for debugging
-        console.log(`Fetched page ${startPage + p}: ${pageReleases.length} releases (total: ${list.length})`);
-
-        // Don't break early - fetch all requested pages to get Oct-Dec data
-        // if (list.length >= limit) break;
-      } catch (error) {
-        console.error(`Failed to fetch page ${startPage + p}:`, error.message);
-        // continue on failure
-      }
+    // Add KicksOnFire data (ultra-fast - only 1 page)
+    let kicksOnFireReleases = [];
+    try {
+      kicksOnFireReleases = await fetchKicksOnFireReleases(1, brandFilter);
+      console.log(`Fetched ${kicksOnFireReleases.length} KicksOnFire releases`);
+    } catch (error) {
+      console.error('KicksOnFire fetch failed, continuing with GBNY data only:', error.message);
     }
 
-    // unique & trim to limit
-    const seen = new Set();
-    const unique = [];
-    for (const it of list) {
-      if (seen.has(it.url)) continue;
-      seen.add(it.url);
-      unique.push(it);
-      // Don't break early - process all fetched releases
-      // if (unique.length >= limit) break;
+    // Combine and deduplicate releases
+    currentReleases = [...gbnyReleases, ...kicksOnFireReleases];
+    currentReleases = deduplicateReleasesByTitle(currentReleases);
+    console.log(`Combined total: ${currentReleases.length} releases after deduplication`);
+
+    // Apply brand filter if specified
+    if (brandFilter) {
+      currentReleases = currentReleases.filter(r => 
+        (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase())
+      );
+      console.log(`After brand filter: ${currentReleases.length} releases`);
     }
-
-    // 2) visit detail pages (no price collected)
-    const out = [];
-    console.log(`Processing ${unique.length} unique releases for details`);
-
-    for (let i = 0; i < unique.length; i++) {
-      const it = unique[i];
-      try {
-        const detailHtml = await fetchText(it.url);
-        out.push(extractDetail(detailHtml, it));
-      } catch {
-        // Use enhanced date parsing for fallback as well
-        const parsedDate = parseHistoricalDate(it.date_hint) || toISOFromTextDate(it.date_hint);
-        out.push({
-          title: it.title,
-          brand: it.brand,
-          release_date: isValidReleaseDate(parsedDate) ? parsedDate : null,
-          url: it.url,
-          image: it.image || null
-          // no price fields
-        });
-      }
-
-      // Add small delay to be respectful to the server
-      if (i % 10 === 0 && i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
-
-    // filter current releases by brand
-    currentReleases = brandFilter
-      ? out.filter(r => (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase()))
-      : out;
   }
 
-  // 2) Fetch historical releases if requested
+  // 2) Fetch historical releases if requested (with enhanced caching)
   if (includeHistorical || historicalOnly) {
-    try {
-      console.log(`Fetching historical releases: weeksBack=${weeksBack}, brandFilter="${brandFilter}"`);
-      historicalReleases = await historicalFetcher.fetchHistoricalReleases(
-        weeksBack,
-        brandFilter,
-        limit
-      );
-      console.log(`Historical fetch result: ${historicalReleases.length} releases found`);
-    } catch (error) {
-      console.error('Error fetching historical releases:', error);
-      // Continue with empty historical releases for graceful degradation
-      historicalReleases = [];
+    // Check historical cache first
+    const historicalCached = historicalCache.get(historicalCacheKey);
+    if (historicalCached && now - historicalCached.at < HISTORICAL_TTL_MS) {
+      console.log('Cache hit: historical data');
+      historicalReleases = historicalCached.data;
+    } else {
+      try {
+        console.log(`Fetching historical releases: weeksBack=${weeksBack}, brandFilter="${brandFilter}"`);
+        historicalReleases = await historicalFetcher.fetchHistoricalReleases(
+          weeksBack,
+          brandFilter,
+          limit
+        );
+        console.log(`Historical fetch result: ${historicalReleases.length} releases found`);
+        
+        // Cache the historical results with longer TTL
+        historicalCache.set(historicalCacheKey, {
+          at: now,
+          data: historicalReleases
+        });
+        console.log('Historical data cached');
+      } catch (error) {
+        console.error('Error fetching historical releases:', error);
+        // Continue with empty historical releases for graceful degradation
+        historicalReleases = [];
+        
+        // Log the error but don't fail the entire request
+        console.log('Continuing with current releases only due to historical fetch failure');
+      }
     }
   }
 
   // 3) Merge current and historical releases using ResponseMerger
-  const mergedResponse = responseMerger.mergeCurrentAndHistorical(
-    currentReleases,
-    historicalReleases,
-    {
-      includeHistorical,
-      historicalOnly,
-      limit,
-      weeksBack
-    }
-  );
+  let mergedResponse;
+  try {
+    mergedResponse = responseMerger.mergeCurrentAndHistorical(
+      currentReleases,
+      historicalReleases,
+      {
+        includeHistorical,
+        historicalOnly,
+        limit,
+        weeksBack
+      }
+    );
+  } catch (error) {
+    console.error('Error merging releases:', error);
+    // Fallback to current releases only for backward compatibility
+    mergedResponse = {
+      releases: currentReleases.slice(0, limit),
+      metadata: {
+        includes_historical: false,
+        historical_only: false,
+        historical_weeks_back: null,
+        historical_count: 0,
+        current_count: currentReleases.length,
+        total_before_limit: currentReleases.length,
+        final_count: Math.min(currentReleases.length, limit)
+      }
+    };
+    console.log('Using fallback response due to merge failure');
+  }
 
   // 4) Build final payload with enhanced metadata
   const finalResults = mergedResponse.releases.slice(0, limit); // Apply final limit here
@@ -600,7 +835,7 @@ export default async function handler(req, res) {
   const payload = {
     results: finalResults,
     meta: {
-      source: "kicksonfire",
+      source: "gbny-manual,kicksonfire",
       start_page: startPage,
       pages_fetched: pages,
       count: finalResults.length,
@@ -611,10 +846,15 @@ export default async function handler(req, res) {
       historical_only: mergedResponse.metadata.historical_only,
       historical_weeks_back: mergedResponse.metadata.historical_weeks_back,
       historical_count: mergedResponse.metadata.historical_count,
-      current_count: mergedResponse.metadata.current_count
+      current_count: mergedResponse.metadata.current_count,
+      // Cache statistics for monitoring
+      cache_stats: getCacheStats()
     }
   };
 
-  cache.set(cacheKey, { at: now, data: payload });
+  // Cache the complete response
+  cache.set(completeCacheKey, { at: now, data: payload });
+  console.log('Complete response cached');
+  
   return res.json(payload);
 }
