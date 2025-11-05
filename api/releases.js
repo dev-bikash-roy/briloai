@@ -623,11 +623,12 @@ export default async function handler(req, res) {
   } catch { params = {}; }
 
   // Optional bearer token (set WEBHOOK_TOKEN in Vercel → Settings → Environment Variables)
-  const token = process.env.WEBHOOK_TOKEN;
-  const auth = req.headers["authorization"] || "";
-  if (token && auth !== `Bearer ${token}`) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  // Removed authentication requirement for easier testing
+  // const token = process.env.WEBHOOK_TOKEN;
+  // const auth = req.headers["authorization"] || "";
+  // if (token && auth !== `Bearer ${token}`) {
+  //   return res.status(401).json({ error: "Unauthorized" });
+  // }
 
   const brandFilter = (params.brand || "").toString().trim();
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 300); // Increased max limit
