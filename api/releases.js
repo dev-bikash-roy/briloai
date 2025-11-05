@@ -8,71 +8,9 @@ const CAL_PATH = "/sneaker-release-dates";
 // GBNY manual data (since their Elfsight widget can't be scraped)
 // This would need to be updated manually or through a different approach
 const GBNY_MANUAL_RELEASES = [
-  {
-    title: "Air Jordan Luka 4 \"Hčerka\" - Men's HF0823-600",
-    brand: "Jordan",
-    release_date: "2025-11-15T12:00:00.000Z",
-    date_hint: "Nov 15",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#luka-4",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/de18341e-9bdc-47d3-8bc5-51b7137994aa/AURORA_HF0823-600_PHSRH000-2000.jpg"
-  },
-  {
-    title: "Nike Sabrina 3 Gamer - Women's II3985-300",
-    brand: "Nike", 
-    release_date: "2025-11-18T12:00:00.000Z",
-    date_hint: "Nov 18",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#sabrina-3",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/6ba9d4b5-97e7-436c-b2b1-4bf42cccddaa/AURORA_II3985-300_PHSRH000-2000.jpg"
-  },
-  {
-    title: "Air Jordan 1 Retro High OG \"Fir\" - Family Collection",
-    brand: "Jordan",
-    release_date: "2025-11-22T12:00:00.000Z", 
-    date_hint: "Nov 22",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-1-fir",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/b81a8087-cd3e-4d87-89cd-188a980b7377/AURORA_FD2596-101_PHSRH000-2000.jpg"
-  },
-  {
-    title: "Nike Ja 3 \"Zombie\" - Men's HV9923-700",
-    brand: "Nike",
-    release_date: "2025-11-25T12:00:00.000Z",
-    date_hint: "Nov 25", 
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#ja-3-zombie",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/7d56390e-299b-4f9d-b799-863e295ba974/AURORA_HV9923-700_PHSRH000-2000.jpg"
-  },
-  {
-    title: "LeBron XXIII \"Chosen One\" - Men's IF0694-001",
-    brand: "Nike",
-    release_date: "2025-11-28T12:00:00.000Z",
-    date_hint: "Nov 28",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#lebron-23",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/bbd9bfca-7e53-4bf6-8a67-0c34b3ce1e2b/Instagram-Post-Run-Bold-Run-Jordan-.gif"
-  },
-  {
-    title: "Nike Air Foamposite One \"Carbon Fiber\" - Men's HF2902-002",
-    brand: "Nike",
-    release_date: "2025-12-01T12:00:00.000Z",
-    date_hint: "Dec 1",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#foamposite-carbon",
-    image: "https://files.elfsightcdn.com/eafe4a4d-3436-495d-b748-5bdce62d911d/8b1f5a51-2fe6-4c2c-9121-9f5422bab620/AURORA_HF2902-002_PHSRH000-2000.jpg"
-  },
-  {
-    title: "Air Jordan 3 Retro \"Family Affair\" - Family Collection",
-    brand: "Jordan",
-    release_date: "2025-12-05T12:00:00.000Z",
-    date_hint: "Dec 5",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-3-family",
-    image: null
-  },
-  {
-    title: "Air Jordan 1 Retro Low OG \"Zion Williamson Voodoo Alternate\" - Family Collection",
-    brand: "Jordan", 
-    release_date: "2025-12-10T12:00:00.000Z",
-    date_hint: "Dec 10",
-    url: "https://gbny.com/pages/upcoming-sneaker-releases#jordan-1-zion",
-    image: null
-  }
+  // This will be populated dynamically from Elfsight widget
 ];
+
 const DEFAULT_PAGES = 5;                // how many pages to fetch by default (increased for more upcoming releases)
 const UA = "GBNY-Brilo/1.1 (+contact@gbny.com)";
 
@@ -291,21 +229,39 @@ function isValidReleaseDate(dateString) {
   return date >= minDate && date <= maxDate;
 }
 
-async function fetchText(url) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-  
-  try {
-    const r = await fetch(url, { 
-      headers: { "user-agent": UA },
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    if (!r.ok) throw new Error("fetch failed " + r.status);
-    return r.text();
-  } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
+async function fetchText(url, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    try {
+      console.log(`Fetching ${url} (attempt ${attempt}/${retries})`);
+      const r = await fetch(url, { 
+        headers: { "user-agent": UA },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status} ${r.statusText}`);
+      }
+      
+      const text = await r.text();
+      console.log(`Successfully fetched ${url} (attempt ${attempt}/${retries})`);
+      return text;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      console.warn(`Attempt ${attempt} failed for ${url}: ${error.message}`);
+      
+      // If this was the last attempt, throw the error
+      if (attempt === retries) {
+        throw new Error(`Failed to fetch ${url} after ${retries} attempts: ${error.message}`);
+      }
+      
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+    }
   }
 }
 
@@ -379,10 +335,8 @@ function extractDetail(html, fallback, isHistorical = false) {
 }
 
 // Fast KicksOnFire scraping (optimized for 1 month of releases)
-async function fetchKicksOnFireReleases(maxPages = 2, brandFilter = '') {
+async function fetchKicksOnFireReleases(maxPages = 5, brandFilter = '') {
   const releases = [];
-  const now = new Date();
-  const oneMonthFromNow = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000));
 
   console.log(`Fetching KicksOnFire releases (max ${maxPages} pages)...`);
 
@@ -392,71 +346,76 @@ async function fetchKicksOnFireReleases(maxPages = 2, brandFilter = '') {
       console.log(`Fetching KicksOnFire page ${page}...`);
       
       const html = await fetchText(url);
-      if (!html) continue;
+      if (!html) {
+        console.warn(`Empty response from KicksOnFire page ${page}`);
+        continue;
+      }
 
       const $ = loadHTML(html);
       let pageReleases = 0;
 
       $(".releases-container .release-item-continer").each((_, el) => {
-        const card = $(el);
-        const a = card.find("a.release-item").first();
-        if (!a.length) return;
+        try {
+          const card = $(el);
+          const a = card.find("a.release-item").first();
+          if (!a.length) return;
 
-        const href = a.attr("href");
-        if (!href) return;
+          const href = a.attr("href");
+          if (!href) return;
 
-        const title = a.find(".release-item-title").first().text().replace(/\s+/g, " ").trim();
-        const dateStamp = a.find(".release-price-from").first().text().trim();
-        
-        // Skip if it looks like a price instead of date
-        if (!title || !dateStamp || /^\$/.test(dateStamp)) return;
+          const title = a.find(".release-item-title").first().text().replace(/\s+/g, " ").trim();
+          const dateStamp = a.find(".release-price-from").first().text().trim();
+          
+          // Don't skip items with prices - try to parse them as dates too
+          if (!title || !dateStamp) return;
 
-        const brand = normalizeBrand(title);
-        
-        // Apply brand filter early if specified
-        if (brandFilter && brand && !brand.toLowerCase().includes(brandFilter.toLowerCase())) {
-          return;
+          const brand = normalizeBrand(title);
+          
+          // Apply brand filter early if specified
+          if (brandFilter && brand && !brand.toLowerCase().includes(brandFilter.toLowerCase())) {
+            return;
+          }
+
+          // Try to parse the date stamp - it might be a date or price
+          let releaseDate = null;
+          if (!/^\$/.test(dateStamp)) {
+            // Try to parse as date if it doesn't start with $
+            releaseDate = toISOFromTextDate(dateStamp);
+          }
+
+          const image = a.find("img").first().attr("src") || a.find("img").first().attr("data-src") || null;
+
+          releases.push({
+            title,
+            brand,
+            release_date: releaseDate,
+            url: absolute(href),
+            image: image ? absolute(image) : null
+          });
+
+          pageReleases++;
+        } catch (itemError) {
+          console.error(`Error processing KicksOnFire release item on page ${page}:`, itemError.message);
+          // Continue with other items
         }
-
-        const releaseDate = toISOFromTextDate(dateStamp);
-        
-        // Only include releases within the next month (for speed)
-        if (releaseDate) {
-          const releaseDateObj = new Date(releaseDate);
-          if (releaseDateObj > oneMonthFromNow) return;
-        }
-
-        const image = a.find("img").first().attr("src") || a.find("img").first().attr("data-src") || null;
-
-        releases.push({
-          title,
-          brand,
-          release_date: releaseDate,
-          url: absolute(href),
-          image: image ? absolute(image) : null,
-          source: 'kicksonfire'
-        });
-
-        pageReleases++;
       });
 
       console.log(`  Found ${pageReleases} releases on page ${page}`);
       
-      // If no releases found on this page, stop fetching more pages
-      if (pageReleases === 0) {
-        console.log(`  No releases found on page ${page}, stopping`);
-        break;
-      }
+      // Continue fetching even if no releases found on this page
+      // Some pages might be empty but others might have data
 
       // Minimal delay for speed
       await new Promise(resolve => setTimeout(resolve, 100));
 
     } catch (error) {
       console.error(`Error fetching KicksOnFire page ${page}:`, error.message);
+      // Continue with next page instead of stopping completely
       continue;
     }
   }
 
+  console.log(`KicksOnFire fetch completed. Total releases: ${releases.length}`);
   return releases;
 }
 
@@ -496,7 +455,7 @@ class ResponseMerger {
     const {
       includeHistorical = false,
       historicalOnly = false,
-      limit = 15,
+      limit = 50,
       weeksBack = 2
     } = options;
 
@@ -737,30 +696,45 @@ export default async function handler(req, res) {
   if (!historicalOnly) {
     console.log('Fetching current releases from multiple sources...');
     
-    // Start with manual GBNY data
-    let gbnyReleases = [...GBNY_MANUAL_RELEASES];
-    console.log(`Loaded ${gbnyReleases.length} manual GBNY releases`);
-
-    // Add KicksOnFire data (ultra-fast - only 1 page)
+    // Fetch releases from KicksOnFire as the primary source
     let kicksOnFireReleases = [];
+    
     try {
-      kicksOnFireReleases = await fetchKicksOnFireReleases(1, brandFilter);
-      console.log(`Fetched ${kicksOnFireReleases.length} KicksOnFire releases`);
+      kicksOnFireReleases = await fetchKicksOnFireReleases(5, brandFilter);
+      console.log(`Fetched ${kicksOnFireReleases.length} releases from KicksOnFire`);
     } catch (error) {
-      console.error('KicksOnFire fetch failed, continuing with GBNY data only:', error.message);
+      console.error('KicksOnFire fetch failed:', error.message);
+      kicksOnFireReleases = [];
     }
+    
+    // Use KicksOnFire releases as the primary data source
+    let gbnyReleases = [];
 
     // Combine and deduplicate releases
     currentReleases = [...gbnyReleases, ...kicksOnFireReleases];
-    currentReleases = deduplicateReleasesByTitle(currentReleases);
-    console.log(`Combined total: ${currentReleases.length} releases after deduplication`);
+
+    console.log(`Combined total before deduplication: ${currentReleases.length} releases`);
+    
+    // Apply deduplication only if we have releases
+    if (currentReleases.length > 0) {
+      currentReleases = deduplicateReleasesByTitle(currentReleases);
+      console.log(`Combined total after deduplication: ${currentReleases.length} releases`);
+    } else {
+      console.log('No releases fetched from any source');
+    }
 
     // Apply brand filter if specified
     if (brandFilter) {
+      const beforeFilter = currentReleases.length;
       currentReleases = currentReleases.filter(r => 
         (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase())
       );
-      console.log(`After brand filter: ${currentReleases.length} releases`);
+      console.log(`After brand filter: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+    }
+    
+    // Log a warning if we have no releases
+    if (currentReleases.length === 0) {
+      console.warn('Warning: No releases found from any source. Check data sources and connectivity.');
     }
   }
 
@@ -835,7 +809,7 @@ export default async function handler(req, res) {
   const payload = {
     results: finalResults,
     meta: {
-      source: "gbny-manual,kicksonfire",
+      source: "kicksonfire",
       start_page: startPage,
       pages_fetched: pages,
       count: finalResults.length,
