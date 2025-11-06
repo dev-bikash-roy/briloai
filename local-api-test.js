@@ -24,18 +24,21 @@ function normalizeBrand(s) {
   return null;
 }
 
+function monthToNum(m) {
+  const map = {
+    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+    july: 7, august: 8, september: 9, sept: 9, october: 10, november: 11, december: 12,
+    jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+  };
+  return map[m.toLowerCase()] || null;
+}
+
 function toISOFromTextDate(s, allowHistorical = false) {
   if (!s) return null;
   const m = s.match(/([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{4})?/);
   if (!m) return null;
   
-  const months = {
-    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
-    july: 7, august: 8, september: 9, sept: 9, october: 10, november: 11, december: 12,
-    jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
-  };
-  
-  const month = months[m[1].toLowerCase()];
+  const month = monthToNum(m[1]);
   const day = parseInt(m[2], 10);
   let year = m[3] ? parseInt(m[3], 10) : (new Date()).getFullYear();
   if (!month || !day) return null;
@@ -126,7 +129,8 @@ function parseGBNYReleases(html) {
         releases.push({
           title: fullTitle,
           brand: brand,
-          release_date: currentDateISO, // Include the date we found
+          release_date: currentDateISO, // Include the ISO date for sorting
+          release_date_display: currentDate, // Include the human-readable date
           url: "https://gbny.com/pages/upcoming",
         });
         

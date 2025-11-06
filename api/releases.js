@@ -60,6 +60,12 @@ function monthToNum(m) {
   return map[m.toLowerCase()] || null;
 }
 
+// Convert month number to short name
+function monthNumToShortName(monthNum) {
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return months[monthNum - 1] || null;
+}
+
 function toISOFromTextDate(s, allowHistorical = false) {
   if (!s) return null;
   const m = s.match(/([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{4})?/);
@@ -322,7 +328,8 @@ function parseGBNYReleases(html) {
         releases.push({
           title: fullTitle,
           brand: brand,
-          release_date: currentDateISO, // Include the date we found
+          release_date: currentDateISO, // Include the ISO date for sorting
+          release_date_display: currentDate, // Include the human-readable date
           url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
         });
         
