@@ -1,15 +1,16 @@
 import { load as loadHTML } from "cheerio";
 import HistoricalDataFetcher from "./historical-data-fetcher.js";
 
-// Base calendar & list pages (using KicksOnFire as reliable source)
-const BASE = "https://www.kicksonfire.com";
-const CAL_PATH = "/sneaker-release-dates";
+// Base URL for GB&Y upcoming releases page
+const GBNY_BASE = "https://gbny.com";
+const GBNY_UPCOMING_PATH = "/pages/upcoming";
 
-// GBNY manual data (since their Elfsight widget can't be scraped)
-// This would need to be updated manually or through a different approach
-const GBNY_MANUAL_RELEASES = [
-  // This will be populated dynamically from Elfsight widget
-];
+// KicksOnFire constants (keeping for reference, but won't be used)
+const KICKS_BASE = "https://www.kicksonfire.com";
+const KICKS_CAL_PATH = "/sneaker-release-dates";
+
+// GBNY manual data (since their page can be scraped directly now)
+const GBNY_MANUAL_RELEASES = [];
 
 const DEFAULT_PAGES = 5;                // how many pages to fetch by default (increased for more upcoming releases)
 const UA = "GBNY-Brilo/1.1 (+contact@gbny.com)";
@@ -265,158 +266,106 @@ async function fetchText(url, retries = 3) {
   }
 }
 
-function absolute(href) {
-  try { return new URL(href, BASE).href; } catch { return href; }
+function absolute(href, base = GBNY_BASE) {
+  try { return new URL(href, base).href; } catch { return href; }
 }
 
 // --------- PARSERS (no price capture) ---------
 // Updated for GBNY.com structure
-// --------- SIMPLE MANUAL DATA APPROACH ---------
-// Since GBNY uses Elfsight widget that can't be scraped, we use manual data
-// This could be updated via a separate process or API in the future
+// --------- GB&Y DATA APPROACH ---------
 
-// Detail page: try to read a "Release Date ..." label; otherwise keep the calendar date.
-function extractDetail(html, fallback, isHistorical = false) {
+// Parse GB&Y upcoming releases page
+function parseGBNYReleases(html) {
   const $ = loadHTML(html);
-  const h1 = $("h1, .product-title, .page-title").first().text().replace(/\s+/g, " ").trim();
-  const pageText = $("body").text().replace(/\s+/g, " ");
-  
-  // Try multiple patterns for release date
-  const datePatterns = [
-    /Release Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
-    /Launch Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
-    /Available\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i,
-    /Drop Date\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i
-  ];
-  
-  let dateISO = null;
-  let matchedDate = null;
-  
-  for (const pattern of datePatterns) {
-    const m = pageText.match(pattern);
-    if (m) {
-      matchedDate = m[1];
-      break;
-    }
-  }
-  
-  if (matchedDate) {
-    dateISO = isHistorical ? parseHistoricalDate(matchedDate) : toISOFromTextDate(matchedDate, isHistorical);
-  } else if (fallback?.date_hint) {
-    dateISO = isHistorical ? parseHistoricalDate(fallback.date_hint) : toISOFromTextDate(fallback.date_hint, isHistorical);
-  }
-
-  // Validate the parsed date
-  if (dateISO && !isValidReleaseDate(dateISO)) {
-    dateISO = null;
-  }
-
-  const brand = normalizeBrand(h1) || fallback?.brand || null;
-
-  // Try multiple selectors for product image
-  let image = $(".product-image img, .hero-image img, .main-image img").first().attr("src") ||
-              $(".product-image img, .hero-image img, .main-image img").first().attr("data-src") ||
-              $("img").first().attr("src") || 
-              $("img").first().attr("data-src") || 
-              fallback?.image || null;
-              
-  if (image && !image.startsWith("http")) {
-    image = image.startsWith("//") ? `https:${image}` : `${BASE}${image}`;
-  }
-
-  return {
-    title: h1 || fallback?.title,
-    brand,
-    release_date: dateISO,
-    url: fallback?.url,
-    image
-    // no price fields
-  };
-}
-
-// Fast KicksOnFire scraping (optimized for 1 month of releases)
-async function fetchKicksOnFireReleases(maxPages = 5, brandFilter = '') {
   const releases = [];
-
-  console.log(`Fetching KicksOnFire releases (max ${maxPages} pages)...`);
-
-  for (let page = 1; page <= maxPages; page++) {
+  
+  // Get all text from the page
+  const bodyText = $('body').text();
+  
+  // Split into lines and filter for relevant content
+  const lines = bodyText.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+  
+  // Variables to track date information
+  let currentDate = null;
+  let currentDateISO = null;
+  
+  // Process each line
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
     try {
-      const url = `${BASE}${CAL_PATH}?page=${page}`;
-      console.log(`Fetching KicksOnFire page ${page}...`);
+      // Check if this line contains a date (e.g., "NOV 7")
+      const datePattern = /^([A-Z]{3})\s+(\d{1,2})$/;
+      const dateMatch = line.match(datePattern);
       
-      const html = await fetchText(url);
-      if (!html) {
-        console.warn(`Empty response from KicksOnFire page ${page}`);
+      if (dateMatch) {
+        // Found a date line, store it for the next release
+        currentDate = `${dateMatch[1]} ${dateMatch[2]}`;
+        currentDateISO = toISOFromTextDate(currentDate);
         continue;
       }
-
-      const $ = loadHTML(html);
-      let pageReleases = 0;
-
-      $(".releases-container .release-item-continer").each((_, el) => {
-        try {
-          const card = $(el);
-          const a = card.find("a.release-item").first();
-          if (!a.length) return;
-
-          const href = a.attr("href");
-          if (!href) return;
-
-          const title = a.find(".release-item-title").first().text().replace(/\s+/g, " ").trim();
-          const dateStamp = a.find(".release-price-from").first().text().trim();
-          
-          // Don't skip items with prices - try to parse them as dates too
-          if (!title || !dateStamp) return;
-
-          const brand = normalizeBrand(title);
-          
-          // Apply brand filter early if specified
-          if (brandFilter && brand && !brand.toLowerCase().includes(brandFilter.toLowerCase())) {
-            return;
-          }
-
-          // Try to parse the date stamp - it might be a date or price
-          let releaseDate = null;
-          if (!/^\$/.test(dateStamp)) {
-            // Try to parse as date if it doesn't start with $
-            releaseDate = toISOFromTextDate(dateStamp);
-          }
-
-          const image = a.find("img").first().attr("src") || a.find("img").first().attr("data-src") || null;
-
-          releases.push({
-            title,
-            brand,
-            release_date: releaseDate,
-            url: absolute(href),
-            image: image ? absolute(image) : null
-          });
-
-          pageReleases++;
-        } catch (itemError) {
-          console.error(`Error processing KicksOnFire release item on page ${page}:`, itemError.message);
-          // Continue with other items
-        }
-      });
-
-      console.log(`  Found ${pageReleases} releases on page ${page}`);
       
-      // Continue fetching even if no releases found on this page
-      // Some pages might be empty but others might have data
-
-      // Minimal delay for speed
-      await new Promise(resolve => setTimeout(resolve, 100));
-
+      // Check if this line contains release information with price
+      const releasePattern = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+?)\$\s*(\d+)/i;
+      const releaseMatch = line.match(releasePattern);
+      
+      if (releaseMatch && currentDate) {
+        const brandName = releaseMatch[1];
+        const productDetails = releaseMatch[2].trim();
+        const price = releaseMatch[3];
+        
+        const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
+        const brand = normalizeBrand(brandName);
+        
+        releases.push({
+          title: fullTitle,
+          brand: brand,
+          release_date: currentDateISO, // Include the date we found
+          url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
+        });
+        
+        // Reset current date after using it
+        currentDate = null;
+        currentDateISO = null;
+        continue;
+      }
     } catch (error) {
-      console.error(`Error fetching KicksOnFire page ${page}:`, error.message);
-      // Continue with next page instead of stopping completely
-      continue;
+      console.error('Error parsing line:', line, error.message);
     }
   }
-
-  console.log(`KicksOnFire fetch completed. Total releases: ${releases.length}`);
+  
   return releases;
+}
+
+// Fetch releases from GB&Y upcoming page
+async function fetchGBNYReleases(brandFilter = '') {
+  try {
+    const url = `${GBNY_BASE}${GBNY_UPCOMING_PATH}`;
+    console.log(`Fetching GB&Y releases from ${url}`);
+    
+    const html = await fetchText(url);
+    if (!html) {
+      console.warn(`Empty response from GB&Y page`);
+      return [];
+    }
+
+    const releases = parseGBNYReleases(html);
+    console.log(`Found ${releases.length} releases from GB&Y`);
+
+    // Apply brand filter if specified
+    if (brandFilter) {
+      return releases.filter(r => 
+        (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase())
+      );
+    }
+    
+    return releases;
+  } catch (error) {
+    console.error('Error fetching GB&Y releases:', error.message);
+    return [];
+  }
 }
 
 // Simple deduplication by title similarity
@@ -695,24 +644,21 @@ export default async function handler(req, res) {
 
   // 1) Fetch current releases (unless historical_only is true)
   if (!historicalOnly) {
-    console.log('Fetching current releases from multiple sources...');
+    console.log('Fetching current releases from GB&Y...');
     
-    // Fetch releases from KicksOnFire as the primary source
-    let kicksOnFireReleases = [];
+    // Fetch releases from GB&Y as the primary source
+    let gbnyReleases = [];
     
     try {
-      kicksOnFireReleases = await fetchKicksOnFireReleases(5, brandFilter);
-      console.log(`Fetched ${kicksOnFireReleases.length} releases from KicksOnFire`);
+      gbnyReleases = await fetchGBNYReleases(brandFilter);
+      console.log(`Fetched ${gbnyReleases.length} releases from GB&Y`);
     } catch (error) {
-      console.error('KicksOnFire fetch failed:', error.message);
-      kicksOnFireReleases = [];
+      console.error('GB&Y fetch failed:', error.message);
+      gbnyReleases = [];
     }
     
-    // Use KicksOnFire releases as the primary data source
-    let gbnyReleases = [];
-
-    // Combine and deduplicate releases
-    currentReleases = [...gbnyReleases, ...kicksOnFireReleases];
+    // Use GB&Y releases as the primary data source
+    currentReleases = [...gbnyReleases];
 
     console.log(`Combined total before deduplication: ${currentReleases.length} releases`);
     
@@ -810,7 +756,7 @@ export default async function handler(req, res) {
   const payload = {
     results: finalResults,
     meta: {
-      source: "kicksonfire",
+      source: "gbny",
       start_page: startPage,
       pages_fetched: pages,
       count: finalResults.length,

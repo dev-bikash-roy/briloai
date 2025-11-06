@@ -1,17 +1,11 @@
-# Brilo KicksOnFire Webhook (v2)
+# Brilo GB&Y Webhook (v2)
 
-Selectors are tailored to the markup you shared:
+This webhook now fetches sneaker release data from [GB&Y Upcoming Releases](https://gbny.com/pages/upcoming) instead of KicksOnFire.
 
-- List page: `.releases-container .release-item-continer` (cards)
-- Card link: `a.release-item` (href)
-- Date or price badge: `.release-price-from` (e.g., "Sep 13" or "$308")
-- Title: `.release-item-title`
-- Image: `.release-item-image img[src]`
-
-Detail page:
-- Attempts to read **"Release Date Month Day, Year"** in the body text.
-- Falls back to the calendar's month/day if a year isn't present on the detail page.
-- Returns an `image` and an optional `price_hint` if the card showed a price instead of a date.
+The parser extracts release information directly from the text content of the GB&Y page, including:
+- Brand (Nike, Jordan, etc.)
+- Product name and details
+- Pricing information
 
 ## Deploy to Vercel (UI)
 1. Go to https://vercel.com/new → **Add New → Project**.
@@ -24,15 +18,15 @@ Detail page:
 ## Test
 GET:
 ```
-curl "https://<your-project>.vercel.app/api/releases?page=2&pages=3&limit=10&brand=Jordan"   -H "Authorization: Bearer gbny-12345"
+curl "https://<your-project>.vercel.app/api/releases?limit=10&brand=Jordan"   -H "Authorization: Bearer gbny-12345"
 ```
 
 POST:
 ```
-curl -X POST "https://<your-project>.vercel.app/api/releases"   -H "Content-Type: application/json"   -H "Authorization: Bearer gbny-12345"   -d '{ "parameters": { "page": 2, "pages": 3, "limit": 10, "brand": "Jordan" } }'
+curl -X POST "https://<your-project>.vercel.app/api/releases"   -H "Content-Type: application/json"   -H "Authorization: Bearer gbny-12345"   -d '{ "parameters": { "limit": 10, "brand": "Jordan" } }'
 ```
 
 ## Notes
 - Uses a 120s in-memory cache per serverless instance.
-- The parser tolerates the first card showing a **price** instead of a **date**.
 - Results are sorted by `release_date` (items without a date fall to the bottom).
+- The parser extracts information from the text content of the GB&Y upcoming releases page.
