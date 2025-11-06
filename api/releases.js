@@ -277,7 +277,7 @@ function absolute(href, base = GBNY_BASE) {
 }
 
 // --------- PARSERS (no price capture) ---------
-// Updated for GB&Y.com structure
+// Updated for GBNY.com structure
 // --------- GB&Y DATA APPROACH ---------
 
 // Parse GB&Y upcoming releases page
@@ -358,6 +358,80 @@ function parseGBNYReleases(html) {
   return releases;
 }
 
+// Enhanced search function with more flexible matching
+function flexibleSearch(releases, query) {
+  if (!query) return releases;
+  
+  // Convert query to lowercase for case-insensitive matching
+  const searchQuery = query.toLowerCase().trim();
+  
+  // If query is empty, return all releases
+  if (!searchQuery) return releases;
+  
+  // Split query into words for more flexible matching
+  const queryWords = searchQuery.split(/\s+/).filter(word => word.length > 0);
+  
+  return releases.filter(release => {
+    // Get all searchable fields
+    const title = (release.title || "").toLowerCase();
+    const brand = (release.brand || "").toLowerCase();
+    const dayOfWeek = (release.day_of_week || "").toLowerCase();
+    const dateDisplay = (release.release_date_display || "").toLowerCase();
+    
+    // Create a combined searchable string
+    const searchableText = `${title} ${brand} ${dayOfWeek} ${dateDisplay}`;
+    
+    // Exact match check
+    if (searchableText.includes(searchQuery)) {
+      return true;
+    }
+    
+    // Word-by-word matching for more flexible search
+    for (const word of queryWords) {
+      // Special handling for common search terms
+      if (word.includes("taxi") && title.includes("taxi")) {
+        return true;
+      }
+      if (word.includes("gamma") && title.includes("gamma")) {
+        return true;
+      }
+      if ((word.includes("saturday") || word.includes("sat")) && dayOfWeek.includes("sat")) {
+        return true;
+      }
+      if (word.includes("jordan") && (title.includes("jordan") || brand.includes("jordan"))) {
+        return true;
+      }
+      if (word === "12" && (title.includes("12") || title.includes("twelve"))) {
+        return true;
+      }
+      if (word === "11" && (title.includes("11") || title.includes("eleven"))) {
+        return true;
+      }
+      
+      // Partial matching for brand names
+      if (word.includes("nike") && brand.includes("nike")) {
+        return true;
+      }
+      if (word.includes("adidas") && brand.includes("adidas")) {
+        return true;
+      }
+      if (word.includes("new") && brand.includes("new balance")) {
+        return true;
+      }
+      if (word.includes("balance") && brand.includes("new balance")) {
+        return true;
+      }
+      
+      // Check if word is in any of the searchable fields
+      if (searchableText.includes(word)) {
+        return true;
+      }
+    }
+    
+    return false;
+  });
+}
+
 // Fetch releases from GB&Y upcoming page
 async function fetchGBNYReleases(searchQuery = '') {
   try {
@@ -375,45 +449,7 @@ async function fetchGBNYReleases(searchQuery = '') {
 
     // Apply search filter if specified
     if (searchQuery) {
-      return releases.filter(r => {
-        // Convert search query to lowercase for case-insensitive matching
-        const query = searchQuery.toLowerCase();
-        
-        // Check if the query matches the title, brand, or model name
-        const titleMatch = (r.title || "").toLowerCase().includes(query);
-        const brandMatch = (r.brand || "").toLowerCase().includes(query);
-        const dayMatch = (r.day_of_week || "").toLowerCase().includes(query);
-        
-        // Special handling for common search terms
-        let specialMatch = false;
-        if (query.includes("taxi") && (r.title || "").toLowerCase().includes("taxi")) {
-          specialMatch = true;
-        }
-        if (query.includes("gamma") && (r.title || "").toLowerCase().includes("gamma")) {
-          specialMatch = true;
-        }
-        if ((query.includes("saturday") || query.includes("sat")) && (r.day_of_week || "").toLowerCase().includes("sat")) {
-          specialMatch = true;
-        }
-        // Handle model numbers like "12" for Air Jordan 12
-        if (query.includes("12") && (r.title || "").toLowerCase().includes("12")) {
-          specialMatch = true;
-        }
-        // Handle model numbers like "11" for Air Jordan 11
-        if (query.includes("11") && (r.title || "").toLowerCase().includes("11")) {
-          specialMatch = true;
-        }
-        // Handle partial model names
-        if (query.includes("jordan") && (r.title || "").toLowerCase().includes("jordan")) {
-          specialMatch = true;
-        }
-        // Handle "this saturday" queries
-        if (query.includes("this saturday") && (r.day_of_week || "").toLowerCase().includes("sat")) {
-          specialMatch = true;
-        }
-        
-        return titleMatch || brandMatch || dayMatch || specialMatch;
-      });
+      return flexibleSearch(releases, searchQuery);
     }
     
     return releases;
