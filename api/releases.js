@@ -379,7 +379,15 @@ async function fetchGBNYReleases(searchQuery = '') {
         if (query.includes("gamma") && (r.title || "").toLowerCase().includes("gamma")) {
           specialMatch = true;
         }
-        if (query.includes("saturday") && (r.release_date_display || "").toLowerCase().includes("sat")) {
+        if ((query.includes("saturday") || query.includes("sat")) && (r.release_date_display || "").toLowerCase().includes("sat")) {
+          specialMatch = true;
+        }
+        // Handle "12" for Air Jordan 12
+        if (query.includes("12") && (r.title || "").toLowerCase().includes("12")) {
+          specialMatch = true;
+        }
+        // Handle "11" for Air Jordan 11
+        if (query.includes("11") && (r.title || "").toLowerCase().includes("11")) {
           specialMatch = true;
         }
         
