@@ -347,7 +347,7 @@ function parseGBNYReleases(html) {
 }
 
 // Fetch releases from GB&Y upcoming page
-async function fetchGBNYReleases(brandFilter = '') {
+async function fetchGBNYReleases(searchQuery = '') {
   try {
     const url = `${GBNY_BASE}${GBNY_UPCOMING_PATH}`;
     console.log(`Fetching GB&Y releases from ${url}`);
@@ -361,11 +361,30 @@ async function fetchGBNYReleases(brandFilter = '') {
     const releases = parseGBNYReleases(html);
     console.log(`Found ${releases.length} releases from GB&Y`);
 
-    // Apply brand filter if specified
-    if (brandFilter) {
-      return releases.filter(r => 
-        (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase())
-      );
+    // Apply search filter if specified
+    if (searchQuery) {
+      return releases.filter(r => {
+        // Convert search query to lowercase for case-insensitive matching
+        const query = searchQuery.toLowerCase();
+        
+        // Check if the query matches the title, brand, or model name
+        const titleMatch = (r.title || "").toLowerCase().includes(query);
+        const brandMatch = (r.brand || "").toLowerCase().includes(query);
+        
+        // Special handling for common search terms
+        let specialMatch = false;
+        if (query.includes("taxi") && (r.title || "").toLowerCase().includes("taxi")) {
+          specialMatch = true;
+        }
+        if (query.includes("gamma") && (r.title || "").toLowerCase().includes("gamma")) {
+          specialMatch = true;
+        }
+        if (query.includes("saturday") && (r.release_date_display || "").toLowerCase().includes("sat")) {
+          specialMatch = true;
+        }
+        
+        return titleMatch || brandMatch || specialMatch;
+      });
     }
     
     return releases;
@@ -415,10 +434,10 @@ export default async function handler(req, res) {
   //   return res.status(401).json({ error: "Unauthorized" });
   // }
 
-  const brandFilter = (params.brand || "").toString().trim();
+  const searchQuery = (params.q || params.search || params.brand || "").toString().trim();
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 300); // Increased max limit
   
-  console.log(`Processing request with brandFilter="${brandFilter}", limit=${limit}`);
+  console.log(`Processing request with searchQuery="${searchQuery}", limit=${limit}`);
   
   // Enhanced caching with separate historical cache
   const now = Date.now();
@@ -430,7 +449,7 @@ export default async function handler(req, res) {
   
   // Generate cache key for current data
   const currentCacheKey = JSON.stringify({
-    brandFilter,
+    searchQuery,
     limit,
     type: 'current'
   });
@@ -447,7 +466,7 @@ export default async function handler(req, res) {
     let gbnyReleases = [];
     
     try {
-      gbnyReleases = await fetchGBNYReleases(brandFilter);
+      gbnyReleases = await fetchGBNYReleases(searchQuery);
       console.log(`Fetched ${gbnyReleases.length} releases from GB&Y`);
     } catch (error) {
       console.error('GB&Y fetch failed:', error.message);
@@ -465,15 +484,6 @@ export default async function handler(req, res) {
       console.log(`Combined total after deduplication: ${currentReleases.length} releases`);
     } else {
       console.log('No releases fetched from any source');
-    }
-
-    // Apply brand filter if specified (already applied in fetchGBNYReleases, but double-checking)
-    if (brandFilter) {
-      const beforeFilter = currentReleases.length;
-      currentReleases = currentReleases.filter(r => 
-        (r.brand || "").toLowerCase().includes(brandFilter.toLowerCase())
-      );
-      console.log(`After brand filter: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
     }
     
     // Apply limit
