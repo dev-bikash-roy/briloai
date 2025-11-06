@@ -296,6 +296,7 @@ function parseGBNYReleases(html) {
   // Variables to track date information
   let currentDate = null;
   let currentDateISO = null;
+  let currentDayOfWeek = null;
   
   // Process each line
   for (let i = 0; i < lines.length; i++) {
@@ -310,6 +311,15 @@ function parseGBNYReleases(html) {
         // Found a date line, store it for the next release
         currentDate = `${dateMatch[1]} ${dateMatch[2]}`;
         currentDateISO = toISOFromTextDate(currentDate);
+        continue;
+      }
+      
+      // Check if this line contains a day of week (e.g., "Saturday, 10:00 AM")
+      const dayPattern = /^([A-Z][a-z]+day),\s*(.+)$/;
+      const dayMatch = line.match(dayPattern);
+      
+      if (dayMatch) {
+        currentDayOfWeek = dayMatch[1];
         continue;
       }
       
@@ -330,12 +340,14 @@ function parseGBNYReleases(html) {
           brand: brand,
           release_date: currentDateISO, // Include the ISO date for sorting
           release_date_display: currentDate, // Include the human-readable date
+          day_of_week: currentDayOfWeek, // Include the day of week if available
           url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
         });
         
         // Reset current date after using it
         currentDate = null;
         currentDateISO = null;
+        currentDayOfWeek = null;
         continue;
       }
     } catch (error) {
@@ -370,6 +382,7 @@ async function fetchGBNYReleases(searchQuery = '') {
         // Check if the query matches the title, brand, or model name
         const titleMatch = (r.title || "").toLowerCase().includes(query);
         const brandMatch = (r.brand || "").toLowerCase().includes(query);
+        const dayMatch = (r.day_of_week || "").toLowerCase().includes(query);
         
         // Special handling for common search terms
         let specialMatch = false;
@@ -379,19 +392,23 @@ async function fetchGBNYReleases(searchQuery = '') {
         if (query.includes("gamma") && (r.title || "").toLowerCase().includes("gamma")) {
           specialMatch = true;
         }
-        if ((query.includes("saturday") || query.includes("sat")) && (r.release_date_display || "").toLowerCase().includes("sat")) {
+        if ((query.includes("saturday") || query.includes("sat")) && (r.day_of_week || "").toLowerCase().includes("sat")) {
           specialMatch = true;
         }
-        // Handle "12" for Air Jordan 12
+        // Handle model numbers like "12" for Air Jordan 12
         if (query.includes("12") && (r.title || "").toLowerCase().includes("12")) {
           specialMatch = true;
         }
-        // Handle "11" for Air Jordan 11
+        // Handle model numbers like "11" for Air Jordan 11
         if (query.includes("11") && (r.title || "").toLowerCase().includes("11")) {
           specialMatch = true;
         }
+        // Handle partial model names
+        if (query.includes("jordan") && (r.title || "").toLowerCase().includes("jordan")) {
+          specialMatch = true;
+        }
         
-        return titleMatch || brandMatch || specialMatch;
+        return titleMatch || brandMatch || dayMatch || specialMatch;
       });
     }
     
