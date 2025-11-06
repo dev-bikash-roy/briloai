@@ -277,7 +277,7 @@ function absolute(href, base = GBNY_BASE) {
 }
 
 // --------- PARSERS (no price capture) ---------
-// Updated for GBNY.com structure
+// Updated for GB&Y.com structure
 // --------- GB&Y DATA APPROACH ---------
 
 // Parse GB&Y upcoming releases page
@@ -314,8 +314,8 @@ function parseGBNYReleases(html) {
         continue;
       }
       
-      // Check if this line contains a day of week (e.g., "Saturday, 10:00 AM")
-      const dayPattern = /^([A-Z][a-z]+day),\s*(.+)$/;
+      // Check if this line contains a day of week with time (e.g., "Saturday, 10:00 AM")
+      const dayPattern = /^([A-Z][a-z]+day),\s*.+$/;
       const dayMatch = line.match(dayPattern);
       
       if (dayMatch) {
@@ -405,6 +405,10 @@ async function fetchGBNYReleases(searchQuery = '') {
         }
         // Handle partial model names
         if (query.includes("jordan") && (r.title || "").toLowerCase().includes("jordan")) {
+          specialMatch = true;
+        }
+        // Handle "this saturday" queries
+        if (query.includes("this saturday") && (r.day_of_week || "").toLowerCase().includes("sat")) {
           specialMatch = true;
         }
         
