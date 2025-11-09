@@ -147,6 +147,70 @@ function parseGBNYReleases(html) {
   return releases;
 }
 
+// Add time-based filtering functions
+function isThisWeek(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const now = new Date();
+  const startOfWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - now.getUTCDay())); // Sunday
+  startOfWeek.setUTCHours(0, 0, 0, 0);
+  
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6); // Saturday
+  endOfWeek.setUTCHours(23, 59, 59, 999);
+  
+  return date >= startOfWeek && date <= endOfWeek;
+}
+
+function isToday(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const today = new Date();
+  const startOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setUTCHours(23, 59, 59, 999);
+  
+  return date >= startOfDay && date <= endOfDay;
+}
+
+// Add weekend filtering function
+function isThisWeekend(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  
+  // Calculate this weekend (Saturday and Sunday)
+  let saturday, sunday;
+  
+  if (dayOfWeek === 0) { // Sunday
+    // This weekend is yesterday (Saturday) and today (Sunday)
+    saturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+    sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  } else {
+    // This weekend is the upcoming Saturday and Sunday
+    const daysUntilSaturday = 6 - dayOfWeek;
+    saturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSaturday));
+    sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSaturday + 1));
+  }
+  
+  saturday.setUTCHours(0, 0, 0, 0);
+  sunday.setUTCHours(23, 59, 59, 999);
+  
+  return date >= saturday && date <= sunday;
+}
+
 // Simple deduplication by title similarity
 function deduplicateReleasesByTitle(releases) {
   const seen = new Set();
@@ -204,8 +268,10 @@ async function handler(req, res) {
   
   const brandFilter = (params.brand || "").toString().trim();
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 300);
+  // Add time-based filtering parameters
+  const timeFilter = (params.time || "").toString().toLowerCase().trim();
   
-  console.log(`Processing request with brandFilter="${brandFilter}", limit=${limit}`);
+  console.log(`Processing request with brandFilter="${brandFilter}", limit=${limit}, timeFilter="${timeFilter}"`);
   
   try {
     // Fetch releases from GB&Y as the primary source
@@ -230,6 +296,22 @@ async function handler(req, res) {
       console.log(`Combined total after deduplication: ${currentReleases.length} releases`);
     } else {
       console.log('No releases fetched from any source');
+    }
+    
+    // Apply time-based filtering if requested
+    if (timeFilter) {
+      const beforeFilter = currentReleases.length;
+      
+      if (timeFilter === "today") {
+        currentReleases = currentReleases.filter(release => isToday(release.release_date));
+        console.log(`Filtered for today: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      } else if (timeFilter === "week" || timeFilter === "this week" || timeFilter === "this-week") {
+        currentReleases = currentReleases.filter(release => isThisWeek(release.release_date));
+        console.log(`Filtered for this week: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      } else if (timeFilter === "weekend" || timeFilter === "this weekend" || timeFilter === "this-weekend") {
+        currentReleases = currentReleases.filter(release => isThisWeekend(release.release_date));
+        console.log(`Filtered for this weekend: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      }
     }
 
     // Apply brand filter if specified
@@ -276,7 +358,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const PORT = 3002;
+const PORT = 3003;
 server.listen(PORT, () => {
   console.log(`Local API server running at http://localhost:${PORT}/api/releases`);
   console.log(`Try: http://localhost:${PORT}/api/releases?brand=Jordan&limit=5`);
