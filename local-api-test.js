@@ -97,6 +97,7 @@ function parseGBNYReleases(html) {
   // Variables to track date information
   let currentDate = null;
   let currentDateISO = null;
+  let currentDayOfWeek = null;
   
   // Process each line
   for (let i = 0; i < lines.length; i++) {
@@ -114,9 +115,22 @@ function parseGBNYReleases(html) {
         continue;
       }
       
+      // Check if this line contains a day of week with time (e.g., "Saturday, 10:00 AM")
+      const dayPattern = /^([A-Z][a-z]+day),\s*.+$/;
+      const dayMatch = line.match(dayPattern);
+      
+      if (dayMatch) {
+        currentDayOfWeek = dayMatch[1];
+        continue;
+      }
+      
       // Check if this line contains release information with price
       const releasePattern = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+?)\$\s*(\d+)/i;
       const releaseMatch = line.match(releasePattern);
+      
+      // Also check for release information without price
+      const releasePatternNoPrice = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+)/i;
+      const releaseMatchNoPrice = line.match(releasePatternNoPrice);
       
       if (releaseMatch && currentDate) {
         const brandName = releaseMatch[1];
@@ -131,12 +145,36 @@ function parseGBNYReleases(html) {
           brand: brand,
           release_date: currentDateISO, // Include the ISO date for sorting
           release_date_display: currentDate, // Include the human-readable date
+          day_of_week: currentDayOfWeek, // Include the day of week if available
           url: "https://gbny.com/pages/upcoming",
         });
         
         // Reset current date after using it
         currentDate = null;
         currentDateISO = null;
+        currentDayOfWeek = null;
+        continue;
+      } else if (releaseMatchNoPrice && currentDate) {
+        // Handle releases without price information
+        const brandName = releaseMatchNoPrice[1];
+        const productDetails = releaseMatchNoPrice[2].trim();
+        
+        const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
+        const brand = normalizeBrand(brandName);
+        
+        releases.push({
+          title: fullTitle,
+          brand: brand,
+          release_date: currentDateISO, // Include the ISO date for sorting
+          release_date_display: currentDate, // Include the human-readable date
+          day_of_week: currentDayOfWeek, // Include the day of week if available
+          url: "https://gbny.com/pages/upcoming",
+        });
+        
+        // Reset current date after using it
+        currentDate = null;
+        currentDateISO = null;
+        currentDayOfWeek = null;
         continue;
       }
     } catch (error) {

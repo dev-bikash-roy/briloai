@@ -328,10 +328,36 @@ function parseGBNYReleases(html) {
       const releasePattern = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+?)\$\s*(\d+)/i;
       const releaseMatch = line.match(releasePattern);
       
+      // Also check for release information without price
+      const releasePatternNoPrice = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+)/i;
+      const releaseMatchNoPrice = line.match(releasePatternNoPrice);
+      
       if (releaseMatch && currentDate) {
         const brandName = releaseMatch[1];
         const productDetails = releaseMatch[2].trim();
         const price = releaseMatch[3];
+        
+        const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
+        const brand = normalizeBrand(brandName);
+        
+        releases.push({
+          title: fullTitle,
+          brand: brand,
+          release_date: currentDateISO, // Include the ISO date for sorting
+          release_date_display: currentDate, // Include the human-readable date
+          day_of_week: currentDayOfWeek, // Include the day of week if available
+          url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
+        });
+        
+        // Reset current date after using it
+        currentDate = null;
+        currentDateISO = null;
+        currentDayOfWeek = null;
+        continue;
+      } else if (releaseMatchNoPrice && currentDate) {
+        // Handle releases without price information
+        const brandName = releaseMatchNoPrice[1];
+        const productDetails = releaseMatchNoPrice[2].trim();
         
         const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
         const brand = normalizeBrand(brandName);
