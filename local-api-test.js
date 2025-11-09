@@ -261,6 +261,85 @@ async function fetchGBNYReleases(brandFilter = '') {
   }
 }
 
+// Add helper function to parse specific dates from natural language
+function parseSpecificDate(query) {
+  if (!query) return null;
+  
+  const now = new Date();
+  const queryLower = query.toLowerCase().trim();
+  
+  // Handle yesterday, today, tomorrow
+  if (queryLower === "yesterday") {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    return yesterday.toISOString().split('T')[0];
+  }
+  
+  if (queryLower === "today") {
+    return now.toISOString().split('T')[0];
+  }
+  
+  if (queryLower === "tomorrow") {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  }
+  
+  // Handle specific dates like "nov 12", "november 12", etc.
+  const months = {
+    'jan': 0, 'january': 0,
+    'feb': 1, 'february': 1,
+    'mar': 2, 'march': 2,
+    'apr': 3, 'april': 3,
+    'may': 4,
+    'jun': 5, 'june': 5,
+    'jul': 6, 'july': 6,
+    'aug': 7, 'august': 7,
+    'sep': 8, 'september': 8,
+    'oct': 9, 'october': 9,
+    'nov': 10, 'november': 10,
+    'dec': 11, 'december': 11
+  };
+  
+  // Pattern for "nov 12", "november 12", etc.
+  const datePattern = /^([a-z]+)\s+(\d{1,2})$/;
+  const match = queryLower.match(datePattern);
+  
+  if (match) {
+    const monthName = match[1];
+    const day = parseInt(match[2], 10);
+    
+    if (months[monthName] !== undefined && day >= 1 && day <= 31) {
+      const month = months[monthName];
+      const year = now.getFullYear();
+      
+      // If the date has already passed this year, use next year
+      const dateThisYear = new Date(year, month, day);
+      const targetYear = dateThisYear < now ? year + 1 : year;
+      
+      return new Date(targetYear, month, day).toISOString().split('T')[0];
+    }
+  }
+  
+  return null;
+}
+
+// Add function to check if a release is on a specific date
+function isOnSpecificDate(releaseDate, targetDate) {
+  if (!releaseDate || !targetDate) return false;
+  
+  try {
+    const release = new Date(releaseDate);
+    const target = new Date(targetDate);
+    
+    return release.getUTCFullYear() === target.getUTCFullYear() &&
+           release.getUTCMonth() === target.getUTCMonth() &&
+           release.getUTCDate() === target.getUTCDate();
+  } catch {
+    return false;
+  }
+}
+
 // Mock handler function
 async function handler(req, res) {
   const parsedUrl = url.parse(req.url, true);
@@ -311,6 +390,13 @@ async function handler(req, res) {
       } else if (timeFilter === "weekend" || timeFilter === "this weekend" || timeFilter === "this-weekend") {
         currentReleases = currentReleases.filter(release => isThisWeekend(release.release_date));
         console.log(`Filtered for this weekend: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      } else {
+        // Handle specific dates like "yesterday", "tomorrow", "nov 12", etc.
+        const specificDate = parseSpecificDate(timeFilter);
+        if (specificDate) {
+          currentReleases = currentReleases.filter(release => isOnSpecificDate(release.release_date, specificDate));
+          console.log(`Filtered for specific date ${specificDate}: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+        }
       }
     }
 
