@@ -1,5 +1,6 @@
 import { load as loadHTML } from "cheerio";
 import HistoricalDataFetcher from "./historical-data-fetcher.js";
+import DateRangeCalculator from "./date-range-calculator.js";
 
 // Base URL for GB&Y upcoming releases page
 const GBNY_BASE = "https://gbny.com";
@@ -479,6 +480,70 @@ function deduplicateReleasesByTitle(releases) {
   return deduplicated;
 }
 
+// Add this helper function after the existing helper functions
+function isThisWeek(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const now = new Date();
+  const startOfWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - now.getUTCDay())); // Sunday
+  startOfWeek.setUTCHours(0, 0, 0, 0);
+  
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6); // Saturday
+  endOfWeek.setUTCHours(23, 59, 59, 999);
+  
+  return date >= startOfWeek && date <= endOfWeek;
+}
+
+function isToday(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const today = new Date();
+  const startOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setUTCHours(23, 59, 59, 999);
+  
+  return date >= startOfDay && date <= endOfDay;
+}
+
+// Add weekend filtering function
+function isThisWeekend(dateString) {
+  if (!dateString) return false;
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return false;
+  
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  
+  // Calculate this weekend (Saturday and Sunday)
+  let saturday, sunday;
+  
+  if (dayOfWeek === 0) { // Sunday
+    // This weekend is yesterday (Saturday) and today (Sunday)
+    saturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+    sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  } else {
+    // This weekend is the upcoming Saturday and Sunday
+    const daysUntilSaturday = 6 - dayOfWeek;
+    saturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSaturday));
+    sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSaturday + 1));
+  }
+  
+  saturday.setUTCHours(0, 0, 0, 0);
+  sunday.setUTCHours(23, 59, 59, 999);
+  
+  return date >= saturday && date <= sunday;
+}
+
 export default async function handler(req, res) {
   const method = req.method || "GET";
   let params = {};
@@ -502,7 +567,10 @@ export default async function handler(req, res) {
   const searchQuery = (params.q || params.search || params.brand || "").toString().trim();
   const limit = Math.min(parseInt(params.limit || "50", 10) || 50, 300); // Increased max limit
   
-  console.log(`Processing request with searchQuery="${searchQuery}", limit=${limit}`);
+  // Add time-based filtering parameters
+  const timeFilter = (params.time || "").toString().toLowerCase().trim();
+  
+  console.log(`Processing request with searchQuery="${searchQuery}", limit=${limit}, timeFilter="${timeFilter}"`);
   
   // Enhanced caching with separate historical cache
   const now = Date.now();
@@ -516,6 +584,7 @@ export default async function handler(req, res) {
   const currentCacheKey = JSON.stringify({
     searchQuery,
     limit,
+    timeFilter,
     type: 'current'
   });
   
@@ -549,6 +618,22 @@ export default async function handler(req, res) {
       console.log(`Combined total after deduplication: ${currentReleases.length} releases`);
     } else {
       console.log('No releases fetched from any source');
+    }
+    
+    // Apply time-based filtering if requested
+    if (timeFilter) {
+      const beforeFilter = currentReleases.length;
+      
+      if (timeFilter === "today") {
+        currentReleases = currentReleases.filter(release => isToday(release.release_date));
+        console.log(`Filtered for today: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      } else if (timeFilter === "week" || timeFilter === "this week" || timeFilter === "this-week") {
+        currentReleases = currentReleases.filter(release => isThisWeek(release.release_date));
+        console.log(`Filtered for this week: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      } else if (timeFilter === "weekend" || timeFilter === "this weekend" || timeFilter === "this-weekend") {
+        currentReleases = currentReleases.filter(release => isThisWeekend(release.release_date));
+        console.log(`Filtered for this weekend: ${currentReleases.length} releases (filtered ${beforeFilter - currentReleases.length})`);
+      }
     }
     
     // Apply limit
