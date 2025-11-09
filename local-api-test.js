@@ -270,18 +270,17 @@ function parseSpecificDate(query) {
   
   // Handle yesterday, today, tomorrow
   if (queryLower === "yesterday") {
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
+    const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
     return yesterday.toISOString().split('T')[0];
   }
   
   if (queryLower === "today") {
-    return now.toISOString().split('T')[0];
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    return today.toISOString().split('T')[0];
   }
   
   if (queryLower === "tomorrow") {
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
     return tomorrow.toISOString().split('T')[0];
   }
   
@@ -311,13 +310,13 @@ function parseSpecificDate(query) {
     
     if (months[monthName] !== undefined && day >= 1 && day <= 31) {
       const month = months[monthName];
-      const year = now.getFullYear();
+      const year = now.getUTCFullYear();
       
       // If the date has already passed this year, use next year
-      const dateThisYear = new Date(year, month, day);
+      const dateThisYear = new Date(Date.UTC(year, month, day));
       const targetYear = dateThisYear < now ? year + 1 : year;
       
-      return new Date(targetYear, month, day).toISOString().split('T')[0];
+      return new Date(Date.UTC(targetYear, month, day)).toISOString().split('T')[0];
     }
   }
   
@@ -330,7 +329,7 @@ function isOnSpecificDate(releaseDate, targetDate) {
   
   try {
     const release = new Date(releaseDate);
-    const target = new Date(targetDate);
+    const target = new Date(targetDate + 'T00:00:00.000Z');
     
     return release.getUTCFullYear() === target.getUTCFullYear() &&
            release.getUTCMonth() === target.getUTCMonth() &&

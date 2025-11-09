@@ -205,3 +205,70 @@ console.log(`\nFound ${releases.length} releases with dates:`);
 releases.forEach((release, i) => {
   console.log(`${i+1}. ${release.title} (${release.brand}) - ${release.release_date}`);
 });
+
+// Test the date parsing function
+function parseSpecificDate(query) {
+  if (!query) return null;
+  
+  const now = new Date();
+  const queryLower = query.toLowerCase().trim();
+  
+  // Handle yesterday, today, tomorrow
+  if (queryLower === "yesterday") {
+    const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+    return yesterday.toISOString().split('T')[0];
+  }
+  
+  if (queryLower === "today") {
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    return today.toISOString().split('T')[0];
+  }
+  
+  if (queryLower === "tomorrow") {
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    return tomorrow.toISOString().split('T')[0];
+  }
+  
+  // Handle specific dates like "nov 12", "november 12", etc.
+  const months = {
+    'jan': 0, 'january': 0,
+    'feb': 1, 'february': 1,
+    'mar': 2, 'march': 2,
+    'apr': 3, 'april': 3,
+    'may': 4,
+    'jun': 5, 'june': 5,
+    'jul': 6, 'july': 6,
+    'aug': 7, 'august': 7,
+    'sep': 8, 'september': 8,
+    'oct': 9, 'october': 9,
+    'nov': 10, 'november': 10,
+    'dec': 11, 'december': 11
+  };
+  
+  // Pattern for "nov 12", "november 12", etc.
+  const datePattern = /^([a-z]+)\s+(\d{1,2})$/;
+  const match = queryLower.match(datePattern);
+  
+  if (match) {
+    const monthName = match[1];
+    const day = parseInt(match[2], 10);
+    
+    if (months[monthName] !== undefined && day >= 1 && day <= 31) {
+      const month = months[monthName];
+      const year = now.getUTCFullYear();
+      
+      // If the date has already passed this year, use next year
+      const dateThisYear = new Date(Date.UTC(year, month, day));
+      const targetYear = dateThisYear < now ? year + 1 : year;
+      
+      return new Date(Date.UTC(targetYear, month, day)).toISOString().split('T')[0];
+    }
+  }
+  
+  return null;
+}
+
+console.log("Today:", new Date().toISOString().split('T')[0]);
+console.log("Tomorrow:", parseSpecificDate("tomorrow"));
+console.log("Nov 12:", parseSpecificDate("nov 12"));
+console.log("Nov 14:", parseSpecificDate("nov 14"));
