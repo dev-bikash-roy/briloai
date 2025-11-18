@@ -298,6 +298,7 @@ function parseGBNYReleases(html) {
   let currentDate = null;
   let currentDateISO = null;
   let currentDayOfWeek = null;
+  let currentTime = null;
   
   // Process each line
   for (let i = 0; i < lines.length; i++) {
@@ -316,65 +317,94 @@ function parseGBNYReleases(html) {
       }
       
       // Check if this line contains a day of week with time (e.g., "Saturday, 10:00 AM")
-      const dayPattern = /^([A-Z][a-z]+day),\s*.+$/;
-      const dayMatch = line.match(dayPattern);
+      const dayTimePattern = /^([A-Z][a-z]+day),\s*([0-9:]+\s*[A-Z]+)$/;
+      const dayTimeMatch = line.match(dayTimePattern);
       
-      if (dayMatch) {
-        currentDayOfWeek = dayMatch[1];
+      if (dayTimeMatch) {
+        currentDayOfWeek = dayTimeMatch[1];
+        currentTime = dayTimeMatch[2];
         continue;
       }
       
-      // Check if this line contains release information with price
-      const releasePattern = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+?)\$\s*(\d+)/i;
-      const releaseMatch = line.match(releasePattern);
+      // Check if this line contains release information with brand name
+      const brandPattern = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)/i;
+      const brandMatch = line.match(brandPattern);
       
-      // Also check for release information without price
-      const releasePatternNoPrice = /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)(.+)/i;
-      const releaseMatchNoPrice = line.match(releasePatternNoPrice);
-      
-      if (releaseMatch && currentDate) {
-        const brandName = releaseMatch[1];
-        const productDetails = releaseMatch[2].trim();
-        const price = releaseMatch[3];
-        
-        const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
+      if (brandMatch && currentDate) {
+        const brandName = brandMatch[1];
         const brand = normalizeBrand(brandName);
         
+        // Extract size variants if they exist in the line
+        const sizeVariants = {};
+        
+        // GS pattern
+        const gsPattern = /GS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
+        let gsMatch;
+        while ((gsMatch = gsPattern.exec(line)) !== null) {
+          sizeVariants.GS = {
+            sku: gsMatch[1],
+            price: `$${gsMatch[2]}`
+          };
+        }
+        
+        // PS pattern
+        const psPattern = /PS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
+        let psMatch;
+        while ((psMatch = psPattern.exec(line)) !== null) {
+          sizeVariants.PS = {
+            sku: psMatch[1],
+            price: `$${psMatch[2]}`
+          };
+        }
+        
+        // TD pattern
+        const tdPattern = /TD\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
+        let tdMatch;
+        while ((tdMatch = tdPattern.exec(line)) !== null) {
+          sizeVariants.TD = {
+            sku: tdMatch[1],
+            price: `$${tdMatch[2]}`
+          };
+        }
+        
+        // Extract main price if it exists
+        const pricePattern = /\$\s*(\d+)/;
+        const priceMatch = line.match(pricePattern);
+        const mainPrice = priceMatch ? `$${priceMatch[1]}` : null;
+        
+        // Extract product information (everything before size variants)
+        let productInfo = line;
+        const sizeVariantIndex = Math.min(
+          line.indexOf(' GS') !== -1 ? line.indexOf(' GS') : Infinity,
+          line.indexOf(' PS') !== -1 ? line.indexOf(' PS') : Infinity,
+          line.indexOf(' TD') !== -1 ? line.indexOf(' TD') : Infinity
+        );
+        
+        if (sizeVariantIndex !== Infinity) {
+          productInfo = line.substring(0, sizeVariantIndex).trim();
+        }
+        
+        // Remove brand name from product info for cleaner title
+        const fullTitle = productInfo.replace(brandName, '').trim();
+        const title = `${brandName} ${fullTitle}`.replace(/\s+/g, ' ').trim();
+        
         releases.push({
-          title: fullTitle,
+          title: title,
           brand: brand,
           release_date: currentDateISO, // Include the ISO date for sorting
           release_date_display: currentDate, // Include the human-readable date
           day_of_week: currentDayOfWeek, // Include the day of week if available
+          time: currentTime, // Include the time if available
           url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
+          price: mainPrice, // Include the main price
+          size_variants: Object.keys(sizeVariants).length > 0 ? sizeVariants : null // Include size variants if available
         });
         
         // Reset current date after using it
         currentDate = null;
         currentDateISO = null;
         currentDayOfWeek = null;
-        continue;
-      } else if (releaseMatchNoPrice && currentDate) {
-        // Handle releases without price information
-        const brandName = releaseMatchNoPrice[1];
-        const productDetails = releaseMatchNoPrice[2].trim();
-        
-        const fullTitle = `${brandName} ${productDetails}`.replace(/\s+/g, ' ').trim();
-        const brand = normalizeBrand(brandName);
-        
-        releases.push({
-          title: fullTitle,
-          brand: brand,
-          release_date: currentDateISO, // Include the ISO date for sorting
-          release_date_display: currentDate, // Include the human-readable date
-          day_of_week: currentDayOfWeek, // Include the day of week if available
-          url: `${GBNY_BASE}${GBNY_UPCOMING_PATH}`,
-        });
-        
-        // Reset current date after using it
-        currentDate = null;
-        currentDateISO = null;
-        currentDayOfWeek = null;
+        currentTime = null;
         continue;
       }
     } catch (error) {
@@ -577,20 +607,25 @@ function parseSpecificDate(query) {
   const now = new Date();
   const queryLower = query.toLowerCase().trim();
   
-  // Handle yesterday, today, tomorrow
-  if (queryLower === "yesterday") {
-    const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-    return yesterday.toISOString().split('T')[0];
-  }
-  
-  if (queryLower === "today") {
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    return today.toISOString().split('T')[0];
-  }
-  
-  if (queryLower === "tomorrow") {
-    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-    return tomorrow.toISOString().split('T')[0];
+  // Handle yesterday, today, tomorrow based on New York time
+  if (queryLower === "yesterday" || queryLower === "today" || queryLower === "tomorrow") {
+    // Convert current time to New York time
+    const nyTimeString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const nyDate = new Date(nyTimeString);
+    
+    let targetDate;
+    if (queryLower === "yesterday") {
+      targetDate = new Date(nyDate);
+      targetDate.setDate(nyDate.getDate() - 1);
+    } else if (queryLower === "today") {
+      targetDate = new Date(nyDate);
+    } else { // tomorrow
+      targetDate = new Date(nyDate);
+      targetDate.setDate(nyDate.getDate() + 1);
+    }
+    
+    // Convert back to UTC for consistent date string
+    return targetDate.toISOString().split('T')[0];
   }
   
   // Handle specific dates like "nov 12", "november 12", etc.
