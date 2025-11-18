@@ -334,59 +334,63 @@ function parseGBNYReleases(html) {
         const brandName = brandMatch[1];
         const brand = normalizeBrand(brandName);
         
-        // Extract size variants if they exist in the line
-        const sizeVariants = {};
-        
-        // GS pattern
-        const gsPattern = /GS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
-        let gsMatch;
-        while ((gsMatch = gsPattern.exec(line)) !== null) {
-          sizeVariants.GS = {
-            sku: gsMatch[1],
-            price: `$${gsMatch[2]}`
-          };
-        }
-        
-        // PS pattern
-        const psPattern = /PS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
-        let psMatch;
-        while ((psMatch = psPattern.exec(line)) !== null) {
-          sizeVariants.PS = {
-            sku: psMatch[1],
-            price: `$${psMatch[2]}`
-          };
-        }
-        
-        // TD pattern
-        const tdPattern = /TD\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/gi;
-        let tdMatch;
-        while ((tdMatch = tdPattern.exec(line)) !== null) {
-          sizeVariants.TD = {
-            sku: tdMatch[1],
-            price: `$${tdMatch[2]}`
-          };
-        }
-        
-        // Extract main price if it exists
+        // Extract main price if it exists in the current line
         const pricePattern = /\$\s*(\d+)/;
         const priceMatch = line.match(pricePattern);
         const mainPrice = priceMatch ? `$${priceMatch[1]}` : null;
         
-        // Extract product information (everything before size variants)
-        let productInfo = line;
-        const sizeVariantIndex = Math.min(
-          line.indexOf(' GS') !== -1 ? line.indexOf(' GS') : Infinity,
-          line.indexOf(' PS') !== -1 ? line.indexOf(' PS') : Infinity,
-          line.indexOf(' TD') !== -1 ? line.indexOf(' TD') : Infinity
-        );
-        
-        if (sizeVariantIndex !== Infinity) {
-          productInfo = line.substring(0, sizeVariantIndex).trim();
-        }
-        
         // Remove brand name from product info for cleaner title
-        const fullTitle = productInfo.replace(brandName, '').trim();
+        const fullTitle = line.replace(brandName, '').trim();
         const title = `${brandName} ${fullTitle}`.replace(/\s+/g, ' ').trim();
+        
+        // Look ahead for size variants in the following lines
+        const sizeVariants = {};
+        let lookAheadIndex = i + 1;
+        let linesChecked = 0;
+        const maxLinesToCheck = 10; // Limit how far we look ahead
+        
+        while (lookAheadIndex < lines.length && linesChecked < maxLinesToCheck) {
+          const nextLine = lines[lookAheadIndex];
+          
+          // Stop if we encounter a new date or brand line (indicates a new product)
+          if (/^([A-Z]{3})\s+(\d{1,2})$/.test(nextLine) || 
+              /(Nike|Air Jordan|Jordan|Adidas|New Balance|Asics|Puma|Reebok|Converse|Saucony|Vans|Balenciaga|Bape|Under Armour)/i.test(nextLine)) {
+            break;
+          }
+          
+          // Check for GS variant
+          const gsPattern = /GS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/i;
+          const gsMatch = nextLine.match(gsPattern);
+          if (gsMatch) {
+            sizeVariants.GS = {
+              sku: gsMatch[1],
+              price: `$${gsMatch[2]}`
+            };
+          }
+          
+          // Check for PS variant
+          const psPattern = /PS\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/i;
+          const psMatch = nextLine.match(psPattern);
+          if (psMatch) {
+            sizeVariants.PS = {
+              sku: psMatch[1],
+              price: `$${psMatch[2]}`
+            };
+          }
+          
+          // Check for TD variant
+          const tdPattern = /TD\s*-\s*([A-Z0-9\-]+)\s*-\s*\$(\d+)/i;
+          const tdMatch = nextLine.match(tdPattern);
+          if (tdMatch) {
+            sizeVariants.TD = {
+              sku: tdMatch[1],
+              price: `$${tdMatch[2]}`
+            };
+          }
+          
+          lookAheadIndex++;
+          linesChecked++;
+        }
         
         releases.push({
           title: title,
